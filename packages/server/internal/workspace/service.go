@@ -253,7 +253,17 @@ func RemoveDocumentMember(actorUserID, documentID, targetUserID uuid.UUID) (*Sha
 			return ErrCollaboratorRemoveRestricted
 		}
 
-		return tx.Where("document_id = ? AND user_id = ?", documentID, targetUserID).Delete(&models.DocumentPermission{}).Error
+		if err := tx.Where("document_id = ? AND user_id = ?", documentID, targetUserID).Delete(&models.DocumentPermission{}).Error; err != nil {
+			return err
+		}
+
+		now := time.Now()
+		return tx.Model(&models.DocumentInvite{}).
+			Where("document_id = ? AND (inviter_user_id = ? OR invitee_user_id = ?) AND status = ?", documentID, targetUserID, targetUserID, documentInviteStatusSent).
+			Updates(map[string]any{
+				"status":     documentInviteStatusCanceled,
+				"updated_at": now,
+			}).Error
 	})
 	if err != nil {
 		return nil, err

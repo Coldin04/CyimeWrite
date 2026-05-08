@@ -657,6 +657,53 @@ func TestShareDocument_RevivesSoftDeletedPermission(t *testing.T) {
 	}
 }
 
+func TestAcceptDocumentInviteRejectsInviteAfterInviterRevoked(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	collaboratorID := uuid.New()
+	inviteeID := uuid.New()
+	seedVerifiedUser(t, db, collaboratorID, "collaborator@example.com")
+	seedVerifiedUser(t, db, inviteeID, "invitee@example.com")
+	docID := seedDocumentForWorkspace(t, db, ownerID, "shared-doc")
+	seedWorkspacePermission(t, db, docID, collaboratorID, ownerID, acl.RoleCollaborator)
+
+	if _, err := InviteDocumentByEmail(collaboratorID, docID, "invitee@example.com", acl.RoleEditor); err != nil {
+		t.Fatalf("invite document: %v", err)
+	}
+
+	var invite models.DocumentInvite
+	if err := db.Where("document_id = ? AND inviter_user_id = ? AND invitee_user_id = ?", docID, collaboratorID, inviteeID).First(&invite).Error; err != nil {
+		t.Fatalf("load invite: %v", err)
+	}
+
+	if _, err := RemoveDocumentMember(ownerID, docID, collaboratorID); err != nil {
+		t.Fatalf("remove collaborator: %v", err)
+	}
+
+	err := AcceptDocumentInvite(inviteeID, invite.ID)
+	if !errors.Is(err, ErrInviteInvalidStatus) {
+		t.Fatalf("expected invalid invite status after inviter revocation, got %v", err)
+	}
+
+	var permissionCount int64
+	if err := db.Model(&models.DocumentPermission{}).
+		Where("document_id = ? AND user_id = ? AND deleted_at IS NULL", docID, inviteeID).
+		Count(&permissionCount).Error; err != nil {
+		t.Fatalf("count invitee permissions: %v", err)
+	}
+	if permissionCount != 0 {
+		t.Fatalf("expected no invitee permission, got %d", permissionCount)
+	}
+
+	var updatedInvite models.DocumentInvite
+	if err := db.First(&updatedInvite, "id = ?", invite.ID).Error; err != nil {
+		t.Fatalf("reload invite: %v", err)
+	}
+	if updatedInvite.Status != documentInviteStatusCanceled {
+		t.Fatalf("expected invite canceled, got %s", updatedInvite.Status)
+	}
+}
+
 func TestListSharedDocuments_ReturnsPermissionedDocs(t *testing.T) {
 	db := setupWorkspaceTestDB(t)
 	ownerID := uuid.New()

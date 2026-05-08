@@ -18,6 +18,7 @@ const (
 	documentInviteStatusSent       = "sent"
 	documentInviteStatusAccepted   = "accepted"
 	documentInviteStatusDeclined   = "declined"
+	documentInviteStatusCanceled   = "canceled"
 	notificationTypeDocumentInvite = "document_invite"
 )
 
@@ -223,6 +224,9 @@ func AcceptDocumentInvite(userID, inviteID uuid.UUID) error {
 		if !acl.RoleAllowsAction(invite.Role, acl.ActionRead) {
 			return ErrInviteInvalidRole
 		}
+		if err := ensureDocumentInviteStillAuthorized(tx, invite); err != nil {
+			return err
+		}
 		if err := upsertDocumentPermission(tx, invite.DocumentID, userID, invite.InviterUserID, invite.Role); err != nil {
 			return err
 		}
@@ -277,6 +281,20 @@ func DeclineDocumentInvite(userID, inviteID uuid.UUID) error {
 				"updated_at": now,
 			}).Error
 	})
+}
+
+func ensureDocumentInviteStillAuthorized(tx *gorm.DB, invite models.DocumentInvite) error {
+	_, inviterRole, err := acl.CanManageDocumentMembers(tx, invite.InviterUserID, invite.DocumentID)
+	if err != nil {
+		if errors.Is(err, acl.ErrDocumentNotFoundOrForbidden) {
+			return ErrInviteInvalidStatus
+		}
+		return err
+	}
+	if inviterRole == acl.RoleCollaborator && invite.Role == acl.RoleCollaborator {
+		return ErrInviteInvalidRole
+	}
+	return nil
 }
 
 func upsertDocumentPermission(tx *gorm.DB, documentID, targetUserID, createdBy uuid.UUID, role string) error {
