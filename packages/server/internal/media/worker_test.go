@@ -12,6 +12,7 @@ import (
 
 type mockStorageProvider struct {
 	deleteCalls []string
+	getCalls    []string
 	deleteErr   error
 }
 
@@ -23,13 +24,60 @@ func (m *mockStorageProvider) PutObject(_ context.Context, _ PutObjectInput) (*P
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockStorageProvider) GetObject(_ context.Context, _ string) (*GetObjectResult, error) {
+func (m *mockStorageProvider) GetObject(_ context.Context, objectKey string) (*GetObjectResult, error) {
+	m.getCalls = append(m.getCalls, objectKey)
 	return nil, errors.New("not implemented")
 }
 
 func (m *mockStorageProvider) DeleteObject(_ context.Context, objectKey string) error {
 	m.deleteCalls = append(m.deleteCalls, objectKey)
 	return m.deleteErr
+}
+
+func TestRunBlobThumbnailReconcilePassSkipsTerminalStatuses(t *testing.T) {
+	db := setupMediaTestDB(t)
+	userID := uuid.New()
+	docID := seedOwnedDocument(t, db, userID)
+
+	mock := &mockStorageProvider{}
+	storageProvider = mock
+	t.Cleanup(func() { storageProvider = nil })
+
+	for _, status := range []string{blobThumbnailStatusFailed, blobThumbnailStatusSkipped} {
+		blob := seedBlob(t, db, "owner/"+status+".png", "image/png", 1, "hash-"+status)
+		if err := db.Model(&models.BlobObject{}).
+			Where("id = ?", blob.ID).
+			Update("thumbnail_status", status).Error; err != nil {
+			t.Fatalf("set thumbnail status: %v", err)
+		}
+		asset := models.Asset{
+			ID:             uuid.New(),
+			OwnerUserID:    userID,
+			DocumentID:     &docID,
+			BlobID:         blob.ID,
+			Kind:           "image",
+			Filename:       status + ".png",
+			URL:            blob.URL,
+			Visibility:     "private",
+			Status:         "ready",
+			ReferenceCount: 0,
+			CreatedBy:      userID,
+		}
+		if err := db.Create(&asset).Error; err != nil {
+			t.Fatalf("create asset: %v", err)
+		}
+	}
+
+	backfilled, err := RunBlobThumbnailReconcilePass(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("reconcile thumbnails: %v", err)
+	}
+	if backfilled != 0 {
+		t.Fatalf("expected no terminal thumbnails backfilled, got %d", backfilled)
+	}
+	if len(mock.getCalls) != 0 {
+		t.Fatalf("expected terminal thumbnails not to fetch storage, got %+v", mock.getCalls)
+	}
 }
 
 func TestRunDueAssetGCJobs_DeletesUnusedAssets(t *testing.T) {

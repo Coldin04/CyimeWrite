@@ -132,6 +132,8 @@ const blobThumbnailStatusPending = "pending"
 const blobThumbnailStatusFailed = "failed"
 const blobThumbnailStatusSkipped = "skipped"
 const blobThumbnailMaxEdge = 320
+const blobThumbnailMaxSourceEdge = 12000
+const blobThumbnailMaxSourcePixels int64 = 50_000_000
 
 type assetBlobRecord struct {
 	Asset models.Asset
@@ -1169,7 +1171,11 @@ func shouldGenerateBlobThumbnail(blob models.BlobObject) bool {
 	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(blob.MimeType)), "image/") {
 		return false
 	}
-	if blob.ThumbnailStatus == blobThumbnailStatusReady && strings.TrimSpace(blob.ThumbnailObjectKey) != "" {
+	status := strings.ToLower(strings.TrimSpace(blob.ThumbnailStatus))
+	if status == blobThumbnailStatusFailed || status == blobThumbnailStatusSkipped {
+		return false
+	}
+	if status == blobThumbnailStatusReady && strings.TrimSpace(blob.ThumbnailObjectKey) != "" {
 		return false
 	}
 	return true
@@ -1275,16 +1281,26 @@ func markBlobThumbnailState(blobID uuid.UUID, status string, extra map[string]an
 }
 
 func buildBlobThumbnail(sourceBytes []byte, mimeType string) ([]byte, string, *int, *int, error) {
+	config, _, err := image.DecodeConfig(bytes.NewReader(sourceBytes))
+	if err != nil {
+		return nil, "", nil, nil, fmt.Errorf("unsupported image for thumbnail: %w", err)
+	}
+	srcW := config.Width
+	srcH := config.Height
+	if err := validateBlobThumbnailSourceSize(srcW, srcH); err != nil {
+		return nil, "", nil, nil, err
+	}
+
 	img, _, err := image.Decode(bytes.NewReader(sourceBytes))
 	if err != nil {
 		return nil, "", nil, nil, fmt.Errorf("unsupported image for thumbnail: %w", err)
 	}
 
 	bounds := img.Bounds()
-	srcW := bounds.Dx()
-	srcH := bounds.Dy()
-	if srcW <= 0 || srcH <= 0 {
-		return nil, "", nil, nil, errors.New("invalid image size")
+	srcW = bounds.Dx()
+	srcH = bounds.Dy()
+	if err := validateBlobThumbnailSourceSize(srcW, srcH); err != nil {
+		return nil, "", nil, nil, err
 	}
 	if srcW <= blobThumbnailMaxEdge && srcH <= blobThumbnailMaxEdge {
 		return nil, "", nil, nil, nil
@@ -1309,6 +1325,20 @@ func buildBlobThumbnail(sourceBytes []byte, mimeType string) ([]byte, string, *i
 	width := dstW
 	height := dstH
 	return encoded.Bytes(), thumbMime, &width, &height, nil
+}
+
+func validateBlobThumbnailSourceSize(width, height int) error {
+	if width <= 0 || height <= 0 {
+		return errors.New("invalid image size")
+	}
+	if width > blobThumbnailMaxSourceEdge || height > blobThumbnailMaxSourceEdge {
+		return fmt.Errorf("unsupported image for thumbnail: dimensions %dx%d exceed maximum edge %d", width, height, blobThumbnailMaxSourceEdge)
+	}
+	pixels := int64(width) * int64(height)
+	if pixels > blobThumbnailMaxSourcePixels {
+		return fmt.Errorf("unsupported image for thumbnail: dimensions %dx%d exceed maximum pixels %d", width, height, blobThumbnailMaxSourcePixels)
+	}
+	return nil
 }
 
 func fitWithin(srcW, srcH, maxEdge int) (int, int) {

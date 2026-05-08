@@ -284,7 +284,7 @@ func RunBlobThumbnailReconcilePass(ctx context.Context, batchSize int) (int, err
 		Where("id IN (?)", subQuery).
 		Where("deleted_at IS NULL").
 		Where("mime_type LIKE ?", "image/%").
-		Where("thumbnail_status <> ? OR thumbnail_object_key = '' OR thumbnail_object_key IS NULL", blobThumbnailStatusReady).
+		Where("thumbnail_status = ? OR thumbnail_status = '' OR thumbnail_status IS NULL OR (thumbnail_status = ? AND (thumbnail_object_key = '' OR thumbnail_object_key IS NULL))", blobThumbnailStatusPending, blobThumbnailStatusReady).
 		Order("updated_at asc").
 		Limit(batchSize).
 		Find(&blobs).Error; err != nil {

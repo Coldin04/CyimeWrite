@@ -3,8 +3,10 @@ package media
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"mime/multipart"
 	"net/http/httptest"
 	"os"
@@ -112,6 +114,55 @@ func makeFileHeader(t *testing.T, fieldName, filename string, content []byte) *m
 		t.Fatalf("parse multipart form: %v", err)
 	}
 	return req.MultipartForm.File[fieldName][0]
+}
+
+func TestBuildBlobThumbnailRejectsOversizedPNGBeforeDecode(t *testing.T) {
+	pngBytes := makePNGHeaderOnly(t, blobThumbnailMaxSourceEdge+1, blobThumbnailMaxSourceEdge+1)
+
+	_, _, _, _, err := buildBlobThumbnail(pngBytes, "image/png")
+	if err == nil {
+		t.Fatalf("expected oversized PNG to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceed maximum edge") {
+		t.Fatalf("expected maximum edge error, got %v", err)
+	}
+}
+
+func TestShouldGenerateBlobThumbnailDoesNotRetryTerminalStatuses(t *testing.T) {
+	for _, status := range []string{blobThumbnailStatusFailed, blobThumbnailStatusSkipped} {
+		blob := models.BlobObject{MimeType: "image/png", ThumbnailStatus: status}
+		if shouldGenerateBlobThumbnail(blob) {
+			t.Fatalf("expected status %q not to be scheduled", status)
+		}
+	}
+
+	if !shouldGenerateBlobThumbnail(models.BlobObject{MimeType: "image/png", ThumbnailStatus: blobThumbnailStatusPending}) {
+		t.Fatalf("expected pending image thumbnail to be scheduled")
+	}
+}
+
+func makePNGHeaderOnly(t *testing.T, width, height int) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	out.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], uint32(width))
+	binary.BigEndian.PutUint32(ihdr[4:8], uint32(height))
+	ihdr[8] = 8 // bit depth
+	ihdr[9] = 6 // RGBA color type
+	writePNGChunk(&out, "IHDR", ihdr)
+	return out.Bytes()
+}
+
+func writePNGChunk(out *bytes.Buffer, chunkType string, data []byte) {
+	_ = binary.Write(out, binary.BigEndian, uint32(len(data)))
+	out.WriteString(chunkType)
+	out.Write(data)
+	crc := crc32.NewIEEE()
+	_, _ = crc.Write([]byte(chunkType))
+	_, _ = crc.Write(data)
+	_ = binary.Write(out, binary.BigEndian, crc.Sum32())
 }
 
 func TestUploadDocumentAsset_DeduplicatesByHashAndSize(t *testing.T) {
