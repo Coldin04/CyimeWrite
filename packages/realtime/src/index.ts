@@ -69,10 +69,27 @@ const ACL_CACHE_MAX_ENTRIES = (() => {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : 10000;
 })();
 const PRESENCE_SESSION_TTL_MS = 45_000;
+const PRESENCE_WS_MAX_PAYLOAD_BYTES = parsePositiveInteger(
+	process.env.PRESENCE_WS_MAX_PAYLOAD_BYTES,
+	4096
+);
+const PRESENCE_WS_RATE_LIMIT_WINDOW_MS = parsePositiveInteger(
+	process.env.PRESENCE_WS_RATE_LIMIT_WINDOW_MS,
+	10_000
+);
+const PRESENCE_WS_MAX_MESSAGES_PER_WINDOW = parsePositiveInteger(
+	process.env.PRESENCE_WS_MAX_MESSAGES_PER_WINDOW,
+	20
+);
 const PRESENCE_MAX_SESSIONS_PER_DOCUMENT = Math.max(
 	1,
 	parseInt(process.env.PRESENCE_MAX_SESSIONS_PER_DOCUMENT || '12', 10)
 );
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+	const parsed = Number.parseInt(value ?? '', 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 const aclCache = new Map<string, { acl: UserACL; expiresAt: number }>();
 
 function aclCacheKey(documentId: string, userId: string): string {
@@ -131,8 +148,47 @@ const documentPresenceSessions = new Map<
 >();
 const documentPresence = new Map<string, Map<string, number>>();
 const presenceSubscribers = new Map<string, Set<WebSocket>>();
-const presenceClientMeta = new WeakMap<WebSocket, { token: string; userId: string; documentId?: string }>();
-const presenceWebSocketServer = new WebSocketServer({ noServer: true });
+const presenceClientMeta = new WeakMap<
+	WebSocket,
+	{
+		token: string;
+		userId: string;
+		documentId?: string;
+		rateWindowStartedAt: number;
+		messageCount: number;
+	}
+>();
+const presenceWebSocketServer = new WebSocketServer({
+	noServer: true,
+	maxPayload: PRESENCE_WS_MAX_PAYLOAD_BYTES
+});
+
+function getPresenceMessageString(raw: Buffer): string {
+	return raw.toString('utf8');
+}
+
+function isPresenceRateLimited(meta: { rateWindowStartedAt: number; messageCount: number }): boolean {
+	const now = Date.now();
+	if (now - meta.rateWindowStartedAt > PRESENCE_WS_RATE_LIMIT_WINDOW_MS) {
+		meta.rateWindowStartedAt = now;
+		meta.messageCount = 0;
+	}
+
+	meta.messageCount += 1;
+	return meta.messageCount > PRESENCE_WS_MAX_MESSAGES_PER_WINDOW;
+}
+
+function isPresenceSubscribeMessage(
+	message: unknown
+): message is { type: 'subscribe'; documentId: string } {
+	return (
+		typeof message === 'object' &&
+		message !== null &&
+		(message as { type?: unknown }).type === 'subscribe' &&
+		typeof (message as { documentId?: unknown }).documentId === 'string' &&
+		(message as { documentId: string }).documentId.trim().length > 0
+	);
+}
 
 function logRealtimeSave(event: string, details: Record<string, unknown> = {}): void {
 	console.debug('[RealtimeSave]', event, details);
@@ -1044,18 +1100,37 @@ presenceWebSocketServer.on('connection', (socket: WebSocket, request: IncomingMe
 		return;
 	}
 
-	presenceClientMeta.set(socket, { token, userId: payload.sub });
+	presenceClientMeta.set(socket, {
+		token,
+		userId: payload.sub,
+		rateWindowStartedAt: Date.now(),
+		messageCount: 0
+	});
+
+	socket.on('error', (error) => {
+		console.warn('[Presence] WebSocket error:', error instanceof Error ? error.message : error);
+	});
 
 	socket.on('message', async (raw: Buffer) => {
 		try {
-			const message = JSON.parse(raw.toString()) as { type?: string; documentId?: string };
-			if (message.type !== 'subscribe' || !message.documentId) {
-				return;
-			}
-
 			const meta = presenceClientMeta.get(socket);
 			if (!meta?.token) {
 				socket.close(4401, 'unauthorized');
+				return;
+			}
+
+			if (isPresenceRateLimited(meta)) {
+				socket.close(4408, 'rate limit exceeded');
+				return;
+			}
+
+			if (raw.byteLength > PRESENCE_WS_MAX_PAYLOAD_BYTES) {
+				socket.close(1009, 'message too large');
+				return;
+			}
+
+			const message = JSON.parse(getPresenceMessageString(raw)) as unknown;
+			if (!isPresenceSubscribeMessage(message)) {
 				return;
 			}
 
