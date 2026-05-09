@@ -73,19 +73,26 @@ func main() {
 			if err != nil {
 				log.Fatalf("读取 .env.example 失败: %v, 请通过原始 ENV 获取一份 ENV 样本后重试流程!", err)
 			}
-			err = os.WriteFile(envPath, envExampleFile, 0644)
+			// replace the JWT_SECRET_KEY with a random SHA256 hash
+			jwtSecretKey, err := utils.GenerateRandomSHA256()
 			if err != nil {
-				log.Fatalf("创建 .env 失败: %v", err)
+				log.Fatalf("生成 JWT_SECRET_KEY 失败: %v", err)
 				return
 			}
-			// replace the JWT_SECRET_KEY with a random SHA256 hash
-			jwtSecretKey := utils.GenerateRandomSHA256()
-			appEncryptionKey := utils.GenerateRandomSHA256()
+			appEncryptionKey, err := utils.GenerateRandomSHA256()
+			if err != nil {
+				log.Fatalf("生成 APP_ENCRYPTION_KEY 失败: %v", err)
+				return
+			}
 			envExampleFile = bytes.ReplaceAll(envExampleFile, []byte("JWT_SECRET_KEY=replace-with-a-strong-secret"), []byte("JWT_SECRET_KEY="+jwtSecretKey))
 			envExampleFile = bytes.ReplaceAll(envExampleFile, []byte("APP_ENCRYPTION_KEY=replace-with-a-strong-secret"), []byte("APP_ENCRYPTION_KEY="+appEncryptionKey))
-			err = os.WriteFile(envPath, envExampleFile, 0644)
+			err = os.WriteFile(envPath, envExampleFile, 0600)
 			if err != nil {
 				log.Fatalf("替换 JWT_SECRET_KEY 失败: %v", err)
+				return
+			}
+			if err := os.Chmod(envPath, 0600); err != nil {
+				log.Fatalf("设置 .env 权限失败: %v", err)
 				return
 			}
 			fmt.Println("已创建 .env 文件")
