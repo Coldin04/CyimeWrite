@@ -24,6 +24,8 @@ func TestPresenceAuthorizationReflectsPermissionRemoval(t *testing.T) {
 		t.Fatalf("remove viewer permission: %v", err)
 	}
 
+	resetPresenceTestState(t)
+
 	if err := canReadDocumentForPresence(viewerID, docID); err == nil {
 		t.Fatal("expected presence authorization to deny viewer after permission removal")
 	}
