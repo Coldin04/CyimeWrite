@@ -64,6 +64,10 @@ interface RealtimeContext {
 // down (one fetch per document per 30s per user) while still bounding how
 // long a revoked user can keep editing.
 const ACL_CACHE_TTL_MS = 30_000;
+const ACL_CACHE_MAX_ENTRIES = (() => {
+	const parsed = parseInt(process.env.ACL_CACHE_MAX_ENTRIES || '10000', 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : 10000;
+})();
 const PRESENCE_SESSION_TTL_MS = 45_000;
 const PRESENCE_MAX_SESSIONS_PER_DOCUMENT = Math.max(
 	1,
@@ -75,11 +79,18 @@ function aclCacheKey(documentId: string, userId: string): string {
 	return `${userId}:${documentId}`;
 }
 
-function purgeExpiredACLCache(now: number): void {
-	for (const [key, value] of aclCache) {
-		if (value.expiresAt <= now) {
-			aclCache.delete(key);
+function setACLCacheEntry(key: string, acl: UserACL, expiresAt: number): void {
+	// Refresh insertion order for simple LRU-style eviction. This keeps the
+	// cache bounded without scanning every entry on latency-sensitive ACL checks.
+	aclCache.delete(key);
+	aclCache.set(key, { acl, expiresAt });
+
+	while (aclCache.size > ACL_CACHE_MAX_ENTRIES) {
+		const oldestKey = aclCache.keys().next().value;
+		if (oldestKey === undefined) {
+			break;
 		}
+		aclCache.delete(oldestKey);
 	}
 }
 
@@ -89,15 +100,17 @@ async function getUserACLFresh(
 	token: string
 ): Promise<UserACL | null> {
 	const now = Date.now();
-	purgeExpiredACLCache(now);
 	const key = aclCacheKey(documentId, userId);
 	const cached = aclCache.get(key);
-	if (cached && cached.expiresAt > now) {
-		return cached.acl;
+	if (cached) {
+		if (cached.expiresAt > now) {
+			return cached.acl;
+		}
+		aclCache.delete(key);
 	}
 	const acl = await getUserACL(documentId, token);
 	if (acl) {
-		aclCache.set(key, { acl, expiresAt: now + ACL_CACHE_TTL_MS });
+		setACLCacheEntry(key, acl, now + ACL_CACHE_TTL_MS);
 	}
 	return acl;
 }
