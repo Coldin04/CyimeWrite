@@ -24,7 +24,7 @@ import (
 
 func setupUserTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	t.Setenv("APP_ENCRYPTION_KEY", "test-app-encryption-key")
+	t.Setenv("APP_ENCRYPTION_KEY", "f3a4d6e7c1b2a8d9e0f1a2b3c4d5e6f70a1b2c3d")
 	dsn := "file:" + uuid.NewString() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {

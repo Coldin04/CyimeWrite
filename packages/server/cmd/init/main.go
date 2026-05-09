@@ -83,6 +83,7 @@ func main() {
 			appEncryptionKey := utils.GenerateRandomSHA256()
 			envExampleFile = bytes.ReplaceAll(envExampleFile, []byte("JWT_SECRET_KEY=replace-with-a-strong-secret"), []byte("JWT_SECRET_KEY="+jwtSecretKey))
 			envExampleFile = bytes.ReplaceAll(envExampleFile, []byte("APP_ENCRYPTION_KEY=replace-with-a-strong-secret"), []byte("APP_ENCRYPTION_KEY="+appEncryptionKey))
+			envExampleFile = bytes.ReplaceAll(envExampleFile, []byte("\nAPP_ENCRYPTION_KEY=\n"), []byte("\nAPP_ENCRYPTION_KEY="+appEncryptionKey+"\n"))
 			err = os.WriteFile(envPath, envExampleFile, 0644)
 			if err != nil {
 				log.Fatalf("替换 JWT_SECRET_KEY 失败: %v", err)

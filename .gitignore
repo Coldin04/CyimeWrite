@@ -53,3 +53,5 @@ GEMINI.md
 .tools/
 .wrangler/
 .zread/
+
+fix.sh

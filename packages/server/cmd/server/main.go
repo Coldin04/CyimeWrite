@@ -12,6 +12,7 @@ import (
 	"g.co1d.in/Coldin04/Cyime/server/internal/database"
 	"g.co1d.in/Coldin04/Cyime/server/internal/media"
 	"g.co1d.in/Coldin04/Cyime/server/internal/middleware"
+	"g.co1d.in/Coldin04/Cyime/server/internal/securevalue"
 	"g.co1d.in/Coldin04/Cyime/server/internal/user"
 	"g.co1d.in/Coldin04/Cyime/server/internal/workspace"
 	"github.com/gofiber/fiber/v2"
@@ -23,10 +24,14 @@ func main() {
 	_ = config.LoadDotEnv(".env")
 
 	// Validate critical secrets BEFORE touching the database. If JWT_SECRET_KEY
-	// is missing, weak, or set to a known insecure default, refuse to start so
-	// the operator notices instead of silently shipping forgeable tokens.
+	// or APP_ENCRYPTION_KEY is missing, weak, or set to a known insecure
+	// default, refuse to start so the operator notices instead of silently
+	// shipping forgeable tokens or encrypting stored secrets with a public key.
 	if _, err := auth.LoadJWTSecret(); err != nil {
 		log.Fatalf("Auth configuration invalid: %v", err)
+	}
+	if err := securevalue.ValidateEncryptionKey(); err != nil {
+		log.Fatalf("Encryption configuration invalid: %v", err)
 	}
 
 	// Initialize database
