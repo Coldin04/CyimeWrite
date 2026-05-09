@@ -294,9 +294,9 @@ func LeaveSharedDocument(userID, documentID uuid.UUID) error {
 }
 
 func ListDocumentMembers(actorUserID, documentID uuid.UUID) (*ShareDocumentResponse, error) {
-	document, _, err := acl.AuthorizeDocumentAction(database.DB, actorUserID, documentID, acl.ActionRead)
+	document, _, err := loadShareManagedDocument(database.DB, actorUserID, documentID)
 	if err != nil {
-		return nil, ErrDocumentNotFoundOrUnauthorized
+		return nil, err
 	}
 
 	var permissions []models.DocumentPermission

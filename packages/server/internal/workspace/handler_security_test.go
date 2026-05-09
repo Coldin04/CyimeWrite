@@ -425,6 +425,43 @@ func TestUpdateDocumentPublicAccessHandler_OwnerCanUpdateWhenCollaborationDisabl
 	}
 }
 
+func TestListDocumentMembersHandler_RequiresMemberManagementAccess(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	viewerID := uuid.New()
+	editorID := uuid.New()
+	collaboratorID := uuid.New()
+	docID := seedDocumentForWorkspace(t, db, ownerID, "shared-doc")
+	seedWorkspacePermission(t, db, docID, viewerID, ownerID, "viewer")
+	seedWorkspacePermission(t, db, docID, editorID, ownerID, "editor")
+	seedWorkspacePermission(t, db, docID, collaboratorID, ownerID, "collaborator")
+
+	tests := []struct {
+		name       string
+		userID     uuid.UUID
+		wantStatus int
+	}{
+		{name: "owner", userID: ownerID, wantStatus: http.StatusOK},
+		{name: "collaborator", userID: collaboratorID, wantStatus: http.StatusOK},
+		{name: "editor", userID: editorID, wantStatus: http.StatusNotFound},
+		{name: "viewer", userID: viewerID, wantStatus: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := newWorkspaceTestApp(tt.userID)
+			req := httptest.NewRequest(http.MethodGet, "/documents/"+docID.String()+"/shares", nil)
+			resp, err := app.Test(req, -1)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			if resp.StatusCode != tt.wantStatus {
+				t.Fatalf("expected %d, got %d", tt.wantStatus, resp.StatusCode)
+			}
+		})
+	}
+}
+
 func TestShareDocumentHandler_CreatesPermission(t *testing.T) {
 	db := setupWorkspaceTestDB(t)
 	ownerID := uuid.New()
