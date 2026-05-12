@@ -108,7 +108,7 @@ func UpdateContentHandler(c *fiber.Ctx) error {
 				Error:   "Not Found",
 				Message: err.Error(),
 			})
-		case errors.Is(err, ErrInvalidContentJSON), errors.Is(err, ErrInvalidContentAssetReferences):
+		case errors.Is(err, ErrInvalidContentJSON), errors.Is(err, ErrContentJSONTooLarge), errors.Is(err, ErrInvalidContentAssetReferences):
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 				Error:   "Bad Request",
 				Message: err.Error(),

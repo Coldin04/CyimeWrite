@@ -17,6 +17,8 @@ import (
 
 const defaultContentJSON = `{"type":"doc","content":[{"type":"paragraph"}]}`
 
+const MaxContentJSONBytes = 2 * 1024 * 1024
+
 const (
 	editorContentRefType = "editor_content"
 	assetStatusReady     = "ready"
@@ -306,6 +308,9 @@ func PermanentDeleteContentByDocumentID(tx *gorm.DB, userID, documentID uuid.UUI
 }
 
 func normalizeContentJSON(raw []byte) (string, error) {
+	if len(raw) > MaxContentJSONBytes {
+		return "", ErrContentJSONTooLarge
+	}
 	if len(raw) == 0 {
 		return defaultContentJSON, nil
 	}

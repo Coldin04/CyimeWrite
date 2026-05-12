@@ -25,6 +25,8 @@ var (
 	ErrFileNotFound                   = errors.New("文件不存在")
 	ErrFolderNameRequired             = errors.New("文件夹名称不能为空")
 	ErrFolderNameTooLong              = errors.New("文件夹名称不能超过 255 个字符")
+	ErrFolderDescriptionTooLong       = errors.New("文件夹描述不能超过 4096 个字符")
+	ErrWorkspaceStorageQuotaExceeded  = errors.New("已达到工作区存储空间上限")
 	ErrReservedFolderName             = errors.New("不能使用系统保留的文件夹名称")
 	ErrParentFolderNotFound           = errors.New("父文件夹不存在")
 	ErrDuplicateFolderName            = errors.New("同名文件夹已存在")

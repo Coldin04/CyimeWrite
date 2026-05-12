@@ -1239,6 +1239,36 @@ func applyDocumentFolderScope(query *gorm.DB, folderID *uuid.UUID) *gorm.DB {
 	return query.Where("folder_id = ?", *folderID)
 }
 
+func ensureWorkspaceStorageWithinLimit(tx *gorm.DB, userID uuid.UUID, additionalBytes int64) error {
+	if additionalBytes < 0 {
+		additionalBytes = 0
+	}
+
+	var folderDescriptionBytes int64
+	if err := tx.Unscoped().Model(&models.Folder{}).
+		Select("COALESCE(SUM(LENGTH(description)), 0)").
+		Where("owner_user_id = ?", userID).
+		Scan(&folderDescriptionBytes).Error; err != nil {
+		return err
+	}
+
+	var documentContentBytes int64
+	if err := tx.Raw(`
+		SELECT COALESCE(SUM(LENGTH(document_bodies.content_json)), 0)
+		FROM document_bodies
+		JOIN documents ON documents.id = document_bodies.document_id
+		WHERE documents.owner_user_id = ?
+	`, userID).Scan(&documentContentBytes).Error; err != nil {
+		return err
+	}
+
+	if folderDescriptionBytes+documentContentBytes+additionalBytes > maxWorkspaceStorageBytesPerUser {
+		return ErrWorkspaceStorageQuotaExceeded
+	}
+
+	return nil
+}
+
 func normalizeFileListSortColumn(sortBy string, fileType string) string {
 	switch sortBy {
 	case "name", "title":
@@ -1255,10 +1285,7 @@ func normalizeFileListSortColumn(sortBy string, fileType string) string {
 
 // GetFiles retrieves a list of files (folders and documents) for a given user and parent folder
 func GetFiles(userID uuid.UUID, parentID *uuid.UUID, limit, offset int, sortBy, order, filterType string) (*FileListResponse, error) {
-	// Default values
-	if limit <= 0 {
-		limit = 50
-	}
+	limit, offset = normalizePagination(limit, offset)
 	if sortBy == "" {
 		sortBy = "updated_at"
 	}
@@ -1380,6 +1407,10 @@ func CreateFolder(userID uuid.UUID, name string, description *string, parentID *
 		return nil, ErrFolderNameTooLong
 	}
 
+	if description != nil && len(*description) > maxFolderDescriptionBytes {
+		return nil, ErrFolderDescriptionTooLong
+	}
+
 	// Validate not a reserved name
 	lowerName := strings.ToLower(strings.TrimSpace(name))
 	for _, reserved := range ReservedFolderNames {
@@ -1425,7 +1456,17 @@ func CreateFolder(userID uuid.UUID, name string, description *string, parentID *
 		UpdatedBy:   userID,
 	}
 
-	if err := database.DB.Create(folder).Error; err != nil {
+	additionalBytes := int64(0)
+	if description != nil {
+		additionalBytes = int64(len(*description))
+	}
+
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := ensureWorkspaceStorageWithinLimit(tx, userID, additionalBytes); err != nil {
+			return err
+		}
+		return tx.Create(folder).Error
+	}); err != nil {
 		return nil, err
 	}
 
@@ -1446,6 +1487,9 @@ func CreateDocument(userID uuid.UUID, title string, contentJSON string, folderID
 	preferredImageTargetID = normalizePreferredImageTargetID(preferredImageTargetID)
 	if preferredImageTargetID == "" {
 		return nil, ErrUnsupportedImageTarget
+	}
+	if len(contentJSON) > content.MaxContentJSONBytes {
+		return nil, content.ErrContentJSONTooLarge
 	}
 
 	// Validate title length
@@ -1508,6 +1552,9 @@ func CreateDocument(userID uuid.UUID, title string, contentJSON string, folderID
 	var document *models.Document
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := ensureDocumentQuotaWithinLimit(tx, userID, 1); err != nil {
+			return err
+		}
+		if err := ensureWorkspaceStorageWithinLimit(tx, userID, int64(len(contentJSON))); err != nil {
 			return err
 		}
 

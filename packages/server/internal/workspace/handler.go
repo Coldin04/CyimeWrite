@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/config"
+	"g.co1d.in/Coldin04/Cyime/server/internal/content"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -276,9 +277,16 @@ func CreateFolderHandler(c *fiber.Ctx) error {
 		if errors.Is(err, ErrFolderNameRequired) ||
 			errors.Is(err, ErrFolderNameTooLong) ||
 			errors.Is(err, ErrReservedFolderName) ||
+			errors.Is(err, ErrFolderDescriptionTooLong) ||
 			errors.Is(err, ErrDuplicateFolderName) {
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 				Error:   "Validation Error",
+				Message: err.Error(),
+			})
+		}
+		if errors.Is(err, ErrWorkspaceStorageQuotaExceeded) {
+			return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
+				Error:   "Quota Exceeded",
 				Message: err.Error(),
 			})
 		}
@@ -361,13 +369,14 @@ func CreateDocumentHandler(c *fiber.Ctx) error {
 			errors.Is(err, ErrDocumentTitleTooLong) ||
 			errors.Is(err, ErrDuplicateDocumentTitle) ||
 			errors.Is(err, ErrUnsupportedDocumentType) ||
-			errors.Is(err, ErrUnsupportedImageTarget) {
+			errors.Is(err, ErrUnsupportedImageTarget) ||
+			errors.Is(err, content.ErrContentJSONTooLarge) {
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 				Error:   "Validation Error",
 				Message: err.Error(),
 			})
 		}
-		if errors.Is(err, ErrDocumentQuotaExceeded) {
+		if errors.Is(err, ErrDocumentQuotaExceeded) || errors.Is(err, ErrWorkspaceStorageQuotaExceeded) {
 			return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
 				Error:   "Quota Exceeded",
 				Message: err.Error(),

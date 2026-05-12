@@ -3,10 +3,12 @@ package workspace
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/acl"
+	"g.co1d.in/Coldin04/Cyime/server/internal/content"
 	"g.co1d.in/Coldin04/Cyime/server/internal/database"
 	"g.co1d.in/Coldin04/Cyime/server/internal/models"
 	"github.com/google/uuid"
@@ -950,4 +952,57 @@ func TestRestoreTrashedItems_RejectsRootDocumentTitleConflict(t *testing.T) {
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+func TestGetFilesCapsClientLimit(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	seedVerifiedUser(t, db, ownerID, ownerID.String()+"@example.com")
+
+	for i := 0; i < maxFileListLimit+5; i++ {
+		folder := models.Folder{
+			ID:          uuid.New(),
+			OwnerUserID: ownerID,
+			Name:        fmt.Sprintf("folder-%03d", i),
+			CreatedBy:   ownerID,
+			UpdatedBy:   ownerID,
+		}
+		if err := db.Create(&folder).Error; err != nil {
+			t.Fatalf("seed folder %d: %v", i, err)
+		}
+	}
+
+	response, err := GetFiles(ownerID, nil, maxFileListLimit*1000, 0, "name", "asc", "folders")
+	if err != nil {
+		t.Fatalf("get files: %v", err)
+	}
+	if len(response.Items) != maxFileListLimit {
+		t.Fatalf("expected capped item count %d, got %d", maxFileListLimit, len(response.Items))
+	}
+	if !response.HasMore {
+		t.Fatalf("expected hasMore when total exceeds capped limit")
+	}
+}
+
+func TestCreateFolderRejectsOversizedDescription(t *testing.T) {
+	setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	description := strings.Repeat("a", maxFolderDescriptionBytes+1)
+
+	_, err := CreateFolder(ownerID, "oversized-description", &description, nil)
+	if !errors.Is(err, ErrFolderDescriptionTooLong) {
+		t.Fatalf("expected oversized description error, got %v", err)
+	}
+}
+
+func TestCreateDocumentRejectsOversizedContentJSON(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	seedVerifiedUser(t, db, ownerID, ownerID.String()+"@example.com")
+	contentJSON := `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"` + strings.Repeat("a", content.MaxContentJSONBytes) + `"}]}]}`
+
+	_, err := CreateDocument(ownerID, "oversized-content", contentJSON, nil, "rich_text", "")
+	if !errors.Is(err, content.ErrContentJSONTooLarge) {
+		t.Fatalf("expected oversized content error, got %v", err)
+	}
 }
