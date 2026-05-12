@@ -502,17 +502,7 @@ func ResolveAvatarURL(baseURL string, user *models.User) (*string, error) {
 		return &avatarURL, nil
 	}
 
-	tokenService, err := media.NewTokenService()
-	if err != nil {
-		// Degrade gracefully: keep existing avatar URL instead of breaking /user/me.
-		return &avatarURL, nil
-	}
-	token, _, err := tokenService.IssueAvatarReadToken(user.ID, avatarObjectKey)
-	if err != nil {
-		return &avatarURL, nil
-	}
-
-	resolved := strings.TrimRight(baseURL, "/") + "/api/v1/user/avatar/content?token=" + token
+	resolved := strings.TrimRight(baseURL, "/") + "/api/v1/user/avatar/content"
 	return &resolved, nil
 }
 

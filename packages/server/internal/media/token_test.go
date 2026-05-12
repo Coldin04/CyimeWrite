@@ -2,6 +2,7 @@ package media
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -33,6 +34,20 @@ func TestIssueAndVerifyAssetReadToken(t *testing.T) {
 	}
 	if claims.UserID != userID {
 		t.Fatalf("user id mismatch: got %s", claims.UserID)
+	}
+}
+
+func TestAvatarReadTokenUsesShortDefaultTTL(t *testing.T) {
+	t.Setenv("MEDIA_TOKEN_SECRET", "test-media-secret")
+	t.Setenv("MEDIA_AVATAR_SIGN_TTL_SECONDS", "")
+
+	svc, err := NewTokenService()
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	if svc.avatarSignTTL != defaultSignTTLSeconds*time.Second {
+		t.Fatalf("expected avatar TTL to match short default, got %s", svc.avatarSignTTL)
 	}
 }
 

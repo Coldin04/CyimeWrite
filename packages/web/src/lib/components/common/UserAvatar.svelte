@@ -24,7 +24,7 @@
 	const fallbackIconSize = $derived(Math.max(18, Math.round(size * 0.42)));
 
 	async function resolveAvatarSource(url: string): Promise<string> {
-		if (!url.includes('/api/v1/user/avatar/content?token=')) {
+		if (!url.includes('/api/v1/user/avatar/content')) {
 			return url;
 		}
 

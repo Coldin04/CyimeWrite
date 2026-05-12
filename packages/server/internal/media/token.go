@@ -11,7 +11,7 @@ import (
 )
 
 const defaultSignTTLSeconds = 120
-const defaultAvatarSignTTLSeconds = 86400
+const defaultAvatarSignTTLSeconds = defaultSignTTLSeconds
 
 type AssetReadClaims struct {
 	jwt.RegisteredClaims

@@ -90,7 +90,7 @@ func main() {
 	userRoutes.Put("/profile", user.UpdateProfileHandler)
 	userRoutes.Post("/avatar", user.UploadAvatarHandler)
 	userRoutes.Put("/avatar/github", user.UpdateGitHubAvatarHandler)
-	api.Get("/user/avatar/content", user.GetAvatarContentHandler)
+	userRoutes.Get("/avatar/content", user.GetAvatarContentHandler)
 
 	// Workspace routes (protected)
 	workspaceRoutes := api.Group("/workspace", middleware.Protected())

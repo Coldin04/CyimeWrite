@@ -273,8 +273,11 @@ func TestUploadAvatarHandler_StoresAvatarAndUpdatesUser(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.AvatarURL == nil || !strings.Contains(*payload.AvatarURL, "/api/v1/user/avatar/content?token=") {
+	if payload.AvatarURL == nil || !strings.HasSuffix(*payload.AvatarURL, "/api/v1/user/avatar/content") {
 		t.Fatalf("unexpected avatarUrl: %+v", payload.AvatarURL)
+	}
+	if strings.Contains(*payload.AvatarURL, "token=") {
+		t.Fatalf("avatarUrl must not expose bearer tokens: %q", *payload.AvatarURL)
 	}
 
 	var updated models.User
@@ -381,7 +384,44 @@ func TestUpdateGitHubAvatarHandler_ClearsStoredObjectKeyAndDeletesOldUpload(t *t
 	}
 }
 
-func TestGetAvatarContentHandler_ReturnsUploadedAvatarByToken(t *testing.T) {
+func TestGetAvatarContentHandler_RejectsQueryTokenWithoutAuthenticatedContext(t *testing.T) {
+	db := setupUserTestDB(t)
+	user := seedUser(t, db)
+
+	t.Setenv("JWT_SECRET_KEY", "test-secret")
+	objectKey := user.ID.String() + "/avatars/avatar.png"
+	urlValue := "/media-files/" + objectKey
+	if err := db.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Updates(map[string]any{
+			"avatar_url":        urlValue,
+			"avatar_object_key": objectKey,
+		}).Error; err != nil {
+		t.Fatalf("seed avatar object: %v", err)
+	}
+
+	tokenService, err := media.NewTokenService()
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+	token, _, err := tokenService.IssueAvatarReadToken(user.ID, objectKey)
+	if err != nil {
+		t.Fatalf("issue token: %v", err)
+	}
+
+	app := fiber.New()
+	app.Get("/api/v1/user/avatar/content", GetAvatarContentHandler)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/avatar/content?token="+token, nil)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetAvatarContentHandler_ReturnsCurrentUsersUploadedAvatar(t *testing.T) {
 	db := setupUserTestDB(t)
 	user := seedUser(t, db)
 
@@ -422,6 +462,10 @@ func TestGetAvatarContentHandler_ReturnsUploadedAvatarByToken(t *testing.T) {
 	}
 	if mePayload.AvatarURL == nil {
 		t.Fatalf("expected resolved avatar url")
+	}
+
+	if strings.Contains(*mePayload.AvatarURL, "token=") {
+		t.Fatalf("avatarUrl must not expose bearer tokens: %q", *mePayload.AvatarURL)
 	}
 
 	contentReq := httptest.NewRequest(http.MethodGet, *mePayload.AvatarURL, nil)

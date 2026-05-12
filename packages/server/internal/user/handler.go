@@ -383,32 +383,24 @@ func UpdateGitHubAvatarHandler(c *fiber.Ctx) error {
 }
 
 func GetAvatarContentHandler(c *fiber.Ctx) error {
-	token := c.Query("token")
-	if token == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Missing avatar token"})
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: Invalid token context."})
 	}
 
-	tokenService, err := media.NewTokenService()
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-	claims, err := tokenService.VerifyAvatarReadToken(token)
-	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid avatar token"})
-	}
-
-	user, err := GetUserByID(claims.UserID)
+	user, err := GetUserByID(userID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
 	}
-	if trimStringPtr(user.AvatarObjectKey) == "" || trimStringPtr(user.AvatarObjectKey) != claims.ObjectKey {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Avatar token does not match current avatar"})
+	objectKey := trimStringPtr(user.AvatarObjectKey)
+	if objectKey == "" {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Avatar not found"})
 	}
 
 	if err := media.InitStorageProviderForAvatarRead(); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	obj, err := media.GetStoredObject(context.Background(), claims.ObjectKey)
+	obj, err := media.GetStoredObject(context.Background(), objectKey)
 	if err != nil {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": err.Error()})
 	}
