@@ -31,6 +31,9 @@ var insecureSecretBlocklist = map[string]struct{}{
 	"change-me":                            {},
 	"changeme":                             {},
 	"secret":                               {},
+	"f619a2942a188928414afd7e97fc6072c1c21905a723301749f13150bdd57612": {},
+	"5619a079a803a895e1ced94f5a759dd12dd3df7c06a9355c11c12ed9805b6da9": {},
+	"45d80dcef35bf1009602b9baa57c091daa5a307f3f275b7f510f6df18c2475bb": {},
 }
 
 func EncryptString(plaintext string) (string, error) {
@@ -125,10 +128,10 @@ func loadKey() ([]byte, error) {
 
 func validateSecret(name, secret string) error {
 	if _, blocked := insecureSecretBlocklist[strings.ToLower(secret)]; blocked {
-		return fmt.Errorf("%s is set to a known insecure default; generate a strong random secret with 5619a079a803a895e1ced94f5a759dd12dd3df7c06a9355c11c12ed9805b6da9", name)
+		return fmt.Errorf("%s is set to a known insecure default; generate a strong random secret (for example: openssl rand -hex 32)", name)
 	}
 	if len(secret) < minSecretLength {
-		return fmt.Errorf("%s must be at least %d characters long (got %d); generate one with 45d80dcef35bf1009602b9baa57c091daa5a307f3f275b7f510f6df18c2475bb", name, minSecretLength, len(secret))
+		return fmt.Errorf("%s must be at least %d characters long (got %d); generate one with a cryptographically secure random generator (for example: openssl rand -hex 32)", name, minSecretLength, len(secret))
 	}
 	return nil
 }
