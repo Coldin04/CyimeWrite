@@ -453,6 +453,79 @@ func TestResolveAccessibleAssetReadURL_AllowsSharedEditorBeforeAssetRefsSync(t *
 	}
 }
 
+func TestGetAccessibleAsset_DeniesDocumentReaderForUnreferencedDocumentAsset(t *testing.T) {
+	db := setupMediaTestDB(t)
+	ownerID := uuid.New()
+	editorID := uuid.New()
+	viewerID := uuid.New()
+	docID := seedOwnedDocument(t, db, ownerID)
+	seedDocumentPermission(t, db, docID, editorID, ownerID, "editor")
+	seedDocumentPermission(t, db, docID, viewerID, ownerID, "viewer")
+
+	blob := seedBlob(t, db, "owner/unreferenced-private.png", "image/png", 19, "hash-unreferenced-private")
+	asset := models.Asset{
+		ID:             uuid.New(),
+		OwnerUserID:    ownerID,
+		DocumentID:     &docID,
+		BlobID:         blob.ID,
+		Kind:           "image",
+		Filename:       "unreferenced-private.png",
+		URL:            blob.URL,
+		Visibility:     "private",
+		Status:         "ready",
+		ReferenceCount: 0,
+		CreatedBy:      editorID,
+	}
+	if err := db.Create(&asset).Error; err != nil {
+		t.Fatalf("create asset: %v", err)
+	}
+
+	if _, err := GetAccessibleAsset(editorID, asset.ID); err != nil {
+		t.Fatalf("expected the uploading editor to access a ready asset before ref sync: %v", err)
+	}
+
+	if _, err := GetAccessibleAsset(viewerID, asset.ID); !errors.Is(err, ErrAssetNotFoundOrForbidden) {
+		t.Fatalf("expected document viewer to be denied before current asset ref exists, got %v", err)
+	}
+
+	if err := db.Create(&models.DocumentAssetRef{
+		ID:          uuid.New(),
+		DocumentID:  docID,
+		AssetID:     asset.ID,
+		OwnerUserID: ownerID,
+		RefType:     mediaRefTypeEditorContent,
+	}).Error; err != nil {
+		t.Fatalf("create document asset ref: %v", err)
+	}
+	if err := db.Model(&models.Asset{}).Where("id = ?", asset.ID).Updates(map[string]any{
+		"reference_count": 1,
+		"status":          "ready",
+	}).Error; err != nil {
+		t.Fatalf("mark asset referenced: %v", err)
+	}
+
+	if _, err := GetAccessibleAsset(viewerID, asset.ID); err != nil {
+		t.Fatalf("expected document viewer to access currently referenced asset: %v", err)
+	}
+
+	if err := db.Unscoped().Delete(&models.DocumentAssetRef{}, "asset_id = ?", asset.ID).Error; err != nil {
+		t.Fatalf("remove document asset ref: %v", err)
+	}
+	if err := db.Model(&models.Asset{}).Where("id = ?", asset.ID).Updates(map[string]any{
+		"reference_count": 0,
+		"status":          "pending_delete",
+	}).Error; err != nil {
+		t.Fatalf("mark asset unreferenced: %v", err)
+	}
+
+	if _, err := GetAccessibleAsset(viewerID, asset.ID); !errors.Is(err, ErrAssetNotFoundOrForbidden) {
+		t.Fatalf("expected document viewer to be denied after asset ref removal, got %v", err)
+	}
+	if _, err := GetAccessibleAsset(editorID, asset.ID); !errors.Is(err, ErrAssetNotFoundOrForbidden) {
+		t.Fatalf("expected uploading editor to be denied after asset ref removal, got %v", err)
+	}
+}
+
 func TestIsUniqueConstraintError(t *testing.T) {
 	if !isUniqueConstraintError(fmt.Errorf("UNIQUE constraint failed: blob_objects.sha256, blob_objects.size"), "blob_objects.sha256", "blob_objects.size") {
 		t.Fatalf("expected sqlite unique constraint to match")
