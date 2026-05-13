@@ -62,7 +62,7 @@ const plugin = {
 			}
 			return {
 				locale,
-				name: pathPattern.replaceAll("{locale}", locale).replaceAll("{languageTag}", locale),
+				path: pathPattern.replaceAll("{locale}", locale).replaceAll("{languageTag}", locale),
 				content: textEncoder.encode(JSON.stringify(json, null, 2) + "\n")
 			};
 		});

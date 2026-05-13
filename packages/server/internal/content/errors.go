@@ -8,4 +8,5 @@ var (
 	ErrInvalidContentJSON             = errors.New("contentJson must be valid JSON")
 	ErrContentJSONTooLarge            = errors.New("contentJson exceeds maximum size")
 	ErrInvalidContentAssetReferences  = errors.New("content references invalid assets")
+	ErrWorkspaceStorageQuotaExceeded  = errors.New("已达到工作区存储空间上限")
 )

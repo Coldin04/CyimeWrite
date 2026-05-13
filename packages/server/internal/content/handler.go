@@ -113,6 +113,11 @@ func UpdateContentHandler(c *fiber.Ctx) error {
 				Error:   "Bad Request",
 				Message: err.Error(),
 			})
+		case errors.Is(err, ErrWorkspaceStorageQuotaExceeded):
+			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+				Error:   "Bad Request",
+				Message: err.Error(),
+			})
 		default:
 			return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 				Error:   "Internal Server Error",

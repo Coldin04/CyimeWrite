@@ -1,7 +1,9 @@
 package content
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/database"
@@ -23,6 +25,7 @@ func setupContentTestDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(
 		&models.User{},
 		&models.Document{},
+		&models.Folder{},
 		&models.DocumentBody{},
 		&models.DocumentPermission{},
 		&models.BlobObject{},
@@ -317,6 +320,39 @@ func TestUpdateContent_RejectsForeignAssetReference(t *testing.T) {
 	payload := []byte(fmt.Sprintf(`{"type":"doc","content":[{"type":"image","attrs":{"assetId":"%s"}}]}`, foreignAsset.ID))
 	if _, err := UpdateContent(ownerID, docID, payload); err == nil || err.Error() != "content references invalid assets" {
 		t.Fatalf("expected invalid asset error, got: %v", err)
+	}
+}
+
+func TestUpdateContent_RejectsWhenWorkspaceStorageQuotaWouldBeExceeded(t *testing.T) {
+	db := setupContentTestDB(t)
+	ownerID := uuid.New()
+	docID, contentID := seedDocumentForContent(t, db, ownerID, "owner-doc", `{"type":"doc","content":[{"type":"paragraph"}]}`)
+
+	largeDescription := strings.Repeat("d", maxWorkspaceStorageBytesPerUser-40)
+	folder := models.Folder{
+		ID:          uuid.New(),
+		OwnerUserID: ownerID,
+		Name:        "large",
+		Description: &largeDescription,
+		CreatedBy:   ownerID,
+		UpdatedBy:   ownerID,
+	}
+	if err := db.Create(&folder).Error; err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+
+	payload := []byte(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"this update should exceed workspace quota"}]}]}`)
+	if _, err := UpdateContent(ownerID, docID, payload); !errors.Is(err, ErrWorkspaceStorageQuotaExceeded) {
+		t.Fatalf("expected workspace quota error, got: %v", err)
+	}
+
+	var got models.DocumentBody
+	if err := db.First(&got, "id = ?", contentID).Error; err != nil {
+		t.Fatalf("reload content: %v", err)
+	}
+	expected := `{"type":"doc","content":[{"type":"paragraph"}]}`
+	if got.ContentJSON != expected {
+		t.Fatalf("expected original content unchanged, got %q", got.ContentJSON)
 	}
 }
 
