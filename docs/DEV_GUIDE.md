@@ -49,28 +49,17 @@
    sqlite3 ~/.cyimewrite/cyimewrite.db
    ```
 
-2. **粘贴并执行 SQL 语句**:
-   复制下面的整段 `INSERT` 代码，将 `'YOUR_CLIENT_ID'` 和 `'YOUR_CLIENT_SECRET'` 替换成您自己的凭据，然后粘贴到 `sqlite3>` 提示符后，按回车执行。
+2. **使用初始化工具写入提供商配置**:
+   不要直接向 `client_secret_encrypted` 字段插入明文 Client Secret。该字段必须由服务端使用 `APP_ENCRYPTION_KEY` 加密后保存。请运行初始化工具并按提示输入 Client ID / Client Secret：
 
-   ```sql
-   INSERT INTO auth_providers (id, name, protocol_type, auth_url, token_url, user_info_url, client_id, client_secret_encrypted, scopes, is_active, created_at, updated_at)
-   VALUES (
-       'a5b1a3e0-01a7-478d-8a49-2155a0e06001', -- 这是一个固定的UUID，可任意
-       'github',
-       'oauth2',
-       'https://github.com/login/oauth/authorize',
-       'https://github.com/login/oauth/access_token',
-       'https://api.github.com/user',
-       'YOUR_CLIENT_ID',       -- <--- 替换这里
-       'YOUR_CLIENT_SECRET',   -- <--- 替换这里
-       'read:user user:email',
-       1,
-       datetime('now'),
-       datetime('now')
-   );
+   ```bash
+   cd packages/server
+   go run cmd/init/main.go
    ```
 
-3. **退出**: 确认无误后，输入 `.quit` 并按回车退出 `sqlite3`。
+   初始化工具会自动加密 Client Secret；服务启动时也会把历史明文记录迁移为加密值。
+
+3. **仅查看数据库**: 如需排查配置，可用 `sqlite3 ~/.cyimewrite/cyimewrite.db` 查看记录，但不要手工写入明文密钥。
 
 ## 4. 前端设置与启动
 

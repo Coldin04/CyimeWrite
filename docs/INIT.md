@@ -62,30 +62,11 @@ go run cmd/init/main.go
 
 ### 跳过配置
 
-如果暂时不想配置 SSO，可以选择 "4. 跳过"，稍后可以通过以下方式手动添加：
+如果暂时不想配置 SSO，可以选择 "6. 跳过（退出）"。稍后请重新运行初始化工具并选择新增登录提供商；不要使用 SQLite 命令行手工向 `client_secret_encrypted` 写入明文 Client Secret。初始化工具会使用 `APP_ENCRYPTION_KEY` 自动加密密钥后再保存。
 
 ```bash
-# 使用 SQLite 命令行工具
-sqlite3 ~/.cyimewrite/cyimewrite.db
-
-# 插入 OAuth 提供商配置
-INSERT INTO auth_providers (id, name, protocol_type, issuer_url, auth_url, token_url, user_info_url, client_id, client_secret_encrypted, icon_url, scopes, is_active, created_at, updated_at)
-VALUES (
-  'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-  'github',
-  'oauth2',
-  NULL,
-  'https://github.com/login/oauth/authorize',
-  'https://github.com/login/oauth/access_token',
-  'https://api.github.com/user',
-  'your-client-id',
-  'your-client-secret',
-  'https://github.com/fluidicon.png',
-  'read:user user:email',
-  1,
-  datetime('now'),
-  datetime('now')
-);
+cd packages/server
+go run cmd/init/main.go
 ```
 
 ## 下一步
@@ -101,9 +82,9 @@ go run cmd/server/main.go
 ## 注意事项
 
 ⚠️ **安全提示**：
-- 当前版本 Client Secret 以明文存储在数据库中
-- 生产环境请实现加密存储（使用环境变量或加密算法）
-- 建议使用 HTTPS 保护回调 URL
+- 请为 `APP_ENCRYPTION_KEY` 设置强随机值；留空时会回退到 `JWT_SECRET_KEY`。
+- OAuth Client Secret 会加密存储在数据库中，请不要手工写入明文。
+- 建议使用 HTTPS 保护回调 URL。
 
 ## 故障排除
 

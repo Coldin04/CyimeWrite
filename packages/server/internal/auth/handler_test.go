@@ -14,6 +14,7 @@ import (
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/database"
 	"g.co1d.in/Coldin04/Cyime/server/internal/models"
+	"g.co1d.in/Coldin04/Cyime/server/internal/securevalue"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
@@ -44,6 +45,30 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 	database.DB = db
 	tokenService = nil
 	return db
+}
+
+func TestDecryptClientSecret_RejectsPlaintext(t *testing.T) {
+	t.Setenv("APP_ENCRYPTION_KEY", "f3a4d6e7c1b2a8d9e0f1a2b3c4d5e6f70a1b2c3d")
+
+	if _, err := decryptClientSecret("plaintext-secret"); err == nil {
+		t.Fatal("expected plaintext client secret to be rejected")
+	}
+}
+
+func TestDecryptClientSecret_DecryptsEncryptedValue(t *testing.T) {
+	t.Setenv("APP_ENCRYPTION_KEY", "f3a4d6e7c1b2a8d9e0f1a2b3c4d5e6f70a1b2c3d")
+
+	encrypted, err := securevalue.EncryptString("client-secret")
+	if err != nil {
+		t.Fatalf("encrypt secret: %v", err)
+	}
+	decrypted, err := decryptClientSecret(encrypted)
+	if err != nil {
+		t.Fatalf("decrypt secret: %v", err)
+	}
+	if decrypted != "client-secret" {
+		t.Fatalf("decrypted secret = %q, want client-secret", decrypted)
+	}
 }
 
 func TestGetAuthConfig_ReturnsDisplayNameWhenConfigured(t *testing.T) {

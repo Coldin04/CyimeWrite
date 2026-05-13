@@ -5,10 +5,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/config"
 	"g.co1d.in/Coldin04/Cyime/server/internal/models"
+	"g.co1d.in/Coldin04/Cyime/server/internal/securevalue"
 	"github.com/google/uuid"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -16,6 +18,11 @@ import (
 )
 
 var DB *gorm.DB
+
+const (
+	databaseDirPerm  os.FileMode = 0o700
+	databaseFilePerm os.FileMode = 0o600
+)
 
 // Connect initializes the database connection and runs auto-migrations.
 func Connect() {
@@ -39,8 +46,8 @@ func Connect() {
 		log.Fatalf("Failed to get user home directory: %v", err)
 	}
 	dbPath := filepath.Join(homeDir, ".cyimewrite")
-	if err := os.MkdirAll(dbPath, os.ModePerm); err != nil {
-		log.Fatalf("Failed to create database directory: %v", err)
+	if err := ensurePrivateDatabaseDir(dbPath); err != nil {
+		log.Fatalf("Failed to create private database directory: %v", err)
 	}
 	// SQLite DSN with safe defaults:
 	//   _journal_mode=WAL       — readers don't block writers and vice versa.
@@ -49,8 +56,11 @@ func Connect() {
 	//   _synchronous=NORMAL     — durability/perf trade-off appropriate for WAL.
 	//   _txlock=immediate       — acquire RESERVED lock on BEGIN to avoid
 	//                             SQLITE_BUSY on transaction promotion.
-	dsn := filepath.Join(dbPath, "cyimewrite.db") +
-		"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL&_txlock=immediate"
+	dbFile := filepath.Join(dbPath, "cyimewrite.db")
+	if err := ensurePrivateDatabaseFile(dbFile); err != nil {
+		log.Fatalf("Failed to create private database file: %v", err)
+	}
+	dsn := dbFile + "?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1&_synchronous=NORMAL&_txlock=immediate"
 
 	DB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: newLogger,
@@ -165,7 +175,53 @@ func Connect() {
 		log.Fatalf("Failed to auto-migrate database: %v", err)
 	}
 
+	if err := encryptPlaintextAuthProviderSecrets(); err != nil {
+		log.Fatalf("Failed to encrypt auth provider secrets: %v", err)
+	}
+
 	log.Println("Database migrated.")
+}
+
+func ensurePrivateDatabaseDir(path string) error {
+	if err := os.MkdirAll(path, databaseDirPerm); err != nil {
+		return err
+	}
+	return os.Chmod(path, databaseDirPerm)
+}
+
+func ensurePrivateDatabaseFile(path string) error {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, databaseFilePerm)
+	if err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(path, databaseFilePerm)
+}
+
+func encryptPlaintextAuthProviderSecrets() error {
+	var providers []models.AuthProvider
+	if err := DB.Find(&providers).Error; err != nil {
+		return err
+	}
+
+	for _, provider := range providers {
+		secret := strings.TrimSpace(provider.ClientSecretEncrypted)
+		if secret == "" || strings.HasPrefix(secret, securevalue.EncryptedValuePrefix) {
+			continue
+		}
+
+		encrypted, err := securevalue.EncryptString(provider.ClientSecretEncrypted)
+		if err != nil {
+			return err
+		}
+		if err := DB.Model(&models.AuthProvider{}).Where("id = ?", provider.ID).Update("client_secret_encrypted", encrypted).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 type legacyRefreshTokenSessionBackfill struct {

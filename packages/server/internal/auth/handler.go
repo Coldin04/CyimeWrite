@@ -677,15 +677,7 @@ func normalizeEmail(value string) *string {
 	return &trimmed
 }
 
-// decryptClientSecret decrypts an OAuth provider's client secret, falling back to
-// treating the stored value as plaintext for historical data that was not encrypted.
+// decryptClientSecret decrypts an OAuth provider's encrypted client secret.
 func decryptClientSecret(encrypted string) (string, error) {
-	secret, err := securevalue.DecryptString(encrypted)
-	if err != nil {
-		if errors.Is(err, securevalue.ErrInvalidFormat) {
-			return encrypted, nil
-		}
-		return "", err
-	}
-	return secret, nil
+	return securevalue.DecryptString(encrypted)
 }

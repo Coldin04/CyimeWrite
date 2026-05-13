@@ -5,13 +5,19 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/models"
+	"g.co1d.in/Coldin04/Cyime/server/internal/securevalue"
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+const testEncryptionKey = "f3a4d6e7c1b2a8d9e0f1a2b3c4d5e6f70a1b2c3d"
 
 // TestConnect_AppliesSafeSQLitePragmas runs the production Connect path against
 // a temp HOME and verifies that the DSN actually delivered the safety options
@@ -23,6 +29,7 @@ func TestConnect_AppliesSafeSQLitePragmas(t *testing.T) {
 		t.Skip("HOME redirection skipped on windows")
 	}
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("APP_ENCRYPTION_KEY", testEncryptionKey)
 
 	// Connect calls log.Fatalf on failure, which would terminate the test
 	// process. This test therefore only exercises the success path and then
@@ -65,6 +72,112 @@ func TestConnect_AppliesSafeSQLitePragmas(t *testing.T) {
 	}
 }
 
+func TestConnect_EnforcesPrivateDatabasePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission checks skipped on windows")
+	}
+	home := t.TempDir()
+	dbDir := filepath.Join(home, ".cyimewrite")
+	if err := os.MkdirAll(dbDir, 0o777); err != nil {
+		t.Fatalf("create database dir: %v", err)
+	}
+	dbFile := filepath.Join(dbDir, "cyimewrite.db")
+	if err := os.WriteFile(dbFile, nil, 0o666); err != nil {
+		t.Fatalf("create database file: %v", err)
+	}
+
+	t.Setenv("HOME", home)
+	t.Setenv("APP_ENCRYPTION_KEY", testEncryptionKey)
+	Connect()
+	t.Cleanup(func() {
+		if DB != nil {
+			if sqlDB, err := DB.DB(); err == nil {
+				_ = sqlDB.Close()
+			}
+		}
+	})
+
+	dirInfo, err := os.Stat(dbDir)
+	if err != nil {
+		t.Fatalf("stat database dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("database dir mode = %o, want 700", got)
+	}
+
+	fileInfo, err := os.Stat(dbFile)
+	if err != nil {
+		t.Fatalf("stat database file: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("database file mode = %o, want 600", got)
+	}
+}
+
+func TestConnect_EncryptsExistingPlaintextAuthProviderSecrets(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME redirection skipped on windows")
+	}
+	home := t.TempDir()
+	dbDir := filepath.Join(home, ".cyimewrite")
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		t.Fatalf("create database dir: %v", err)
+	}
+	dbFile := filepath.Join(dbDir, "cyimewrite.db")
+	seedDB, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open seed sqlite: %v", err)
+	}
+	if err := seedDB.AutoMigrate(&models.AuthProvider{}); err != nil {
+		t.Fatalf("seed migrate: %v", err)
+	}
+	provider := models.AuthProvider{
+		ID:                    uuid.New(),
+		Name:                  "github",
+		ProtocolType:          "oauth2",
+		ClientID:              "client-id",
+		ClientSecretEncrypted: "plaintext-secret",
+		Scopes:                "read:user",
+		IsActive:              true,
+	}
+	if err := seedDB.Create(&provider).Error; err != nil {
+		t.Fatalf("seed provider: %v", err)
+	}
+	seedSQLDB, err := seedDB.DB()
+	if err != nil {
+		t.Fatalf("seed sql db: %v", err)
+	}
+	if err := seedSQLDB.Close(); err != nil {
+		t.Fatalf("close seed db: %v", err)
+	}
+
+	t.Setenv("HOME", home)
+	t.Setenv("APP_ENCRYPTION_KEY", testEncryptionKey)
+	Connect()
+	t.Cleanup(func() {
+		if DB != nil {
+			if sqlDB, err := DB.DB(); err == nil {
+				_ = sqlDB.Close()
+			}
+		}
+	})
+
+	var stored models.AuthProvider
+	if err := DB.First(&stored, "id = ?", provider.ID).Error; err != nil {
+		t.Fatalf("load provider: %v", err)
+	}
+	if !strings.HasPrefix(stored.ClientSecretEncrypted, securevalue.EncryptedValuePrefix) {
+		t.Fatalf("secret was not encrypted: %q", stored.ClientSecretEncrypted)
+	}
+	decrypted, err := securevalue.DecryptString(stored.ClientSecretEncrypted)
+	if err != nil {
+		t.Fatalf("decrypt stored secret: %v", err)
+	}
+	if decrypted != "plaintext-secret" {
+		t.Fatalf("decrypted secret = %q, want plaintext-secret", decrypted)
+	}
+}
+
 // TestConnect_CascadeDeletesUserSessions verifies that the foreign-key fix
 // actually causes the OnDelete:CASCADE declared on UserSession to fire. This
 // is the regression test for the silent-cascade-loss part of bug P0-#2.
@@ -73,6 +186,7 @@ func TestConnect_CascadeDeletesUserSessions(t *testing.T) {
 		t.Skip("HOME redirection skipped on windows")
 	}
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("APP_ENCRYPTION_KEY", testEncryptionKey)
 
 	Connect()
 	t.Cleanup(func() {
@@ -162,6 +276,7 @@ func TestConnect_BackfillsLegacyRefreshTokenSessions(t *testing.T) {
 	}
 
 	t.Setenv("HOME", home)
+	t.Setenv("APP_ENCRYPTION_KEY", testEncryptionKey)
 	Connect()
 	t.Cleanup(func() {
 		if DB != nil {
