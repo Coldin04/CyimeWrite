@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/acl"
@@ -34,6 +35,8 @@ var ReservedFolderNames = []string{
 }
 
 var ErrDocumentQuotaExceeded = errors.New("已达到文档数量上限")
+
+var folderHierarchyMu sync.Mutex
 
 const (
 	DefaultPreferredImageTargetID = "managed-r2"
@@ -1717,6 +1720,15 @@ func DeleteFile(userID uuid.UUID, fileID uuid.UUID, fileType string) error {
 
 // deleteFolderRecursive recursively deletes a folder and all its children within a single transaction
 func deleteFolderRecursive(tx *gorm.DB, userID uuid.UUID, folderID uuid.UUID) error {
+	return deleteFolderRecursiveWithVisited(tx, userID, folderID, make(map[uuid.UUID]struct{}))
+}
+
+func deleteFolderRecursiveWithVisited(tx *gorm.DB, userID uuid.UUID, folderID uuid.UUID, visited map[uuid.UUID]struct{}) error {
+	if _, exists := visited[folderID]; exists {
+		return errors.New("检测到循环文件夹引用，无法删除")
+	}
+	visited[folderID] = struct{}{}
+
 	// Find all child folders within the transaction
 	var childFolders []models.Folder
 	if err := tx.Where("parent_id = ? AND owner_user_id = ?", folderID, userID).Find(&childFolders).Error; err != nil {
@@ -1725,7 +1737,7 @@ func deleteFolderRecursive(tx *gorm.DB, userID uuid.UUID, folderID uuid.UUID) er
 
 	// Recursively delete child folders, passing the transaction down
 	for _, child := range childFolders {
-		if err := deleteFolderRecursive(tx, userID, child.ID); err != nil {
+		if err := deleteFolderRecursiveWithVisited(tx, userID, child.ID, visited); err != nil {
 			return err
 		}
 	}
@@ -2234,56 +2246,60 @@ func MoveDocument(userID uuid.UUID, documentID uuid.UUID, folderID *uuid.UUID) (
 
 // MoveFolder moves a folder to a different parent folder (or root)
 func MoveFolder(userID uuid.UUID, folderID uuid.UUID, parentID *uuid.UUID) (*time.Time, error) {
-	// 1. Verify the folder exists, belongs to the user, and is not deleted
-	var folder models.Folder
-	result := database.DB.Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", folderID, userID).First(&folder)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, ErrFolderNotFoundOrDeleted
-		}
-		return nil, result.Error
-	}
+	folderHierarchyMu.Lock()
+	defer folderHierarchyMu.Unlock()
 
-	// 2. Prevent moving a folder into itself
-	if parentID != nil && *parentID == folderID {
-		return nil, errors.New("不能将文件夹移动到其自身内部")
-	}
-
-	// 3. Validate target parent folder if provided
-	if parentID != nil {
-		// Check if parent folder exists and belongs to user
-		var parentFolder models.Folder
-		result = database.DB.Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", parentID, userID).First(&parentFolder)
-		if result.Error != nil {
-			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-				return nil, ErrTargetParentNotFoundOrDeleted
-			}
-			return nil, result.Error
-		}
-
-		// 4. Check for circular dependency: cannot move folder into its own descendant
-		if err := checkCircularDependency(database.DB, userID, &folderID, parentID); err != nil {
-			return nil, err
-		}
-	}
-
-	// 5. Check for naming conflict in the destination
-	var conflictCount int64
-	query := database.DB.Model(&models.Folder{}).Where("name = ? AND owner_user_id = ? AND deleted_at IS NULL", folder.Name, userID)
-	if parentID != nil {
-		query = query.Where("parent_id = ?", parentID)
-	} else {
-		query = query.Where("parent_id IS NULL")
-	}
-	query.Count(&conflictCount)
-	if conflictCount > 0 {
-		return nil, errors.New("目标文件夹中已存在同名文件夹")
-	}
-
-	// 6. Update the parent_id
 	var updatedAt time.Time
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
-		// Update parent_id
+		// 1. Verify the folder exists, belongs to the user, and is not deleted
+		var folder models.Folder
+		result := tx.Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", folderID, userID).First(&folder)
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				return ErrFolderNotFoundOrDeleted
+			}
+			return result.Error
+		}
+
+		// 2. Prevent moving a folder into itself
+		if parentID != nil && *parentID == folderID {
+			return errors.New("不能将文件夹移动到其自身内部")
+		}
+
+		// 3. Validate target parent folder if provided
+		if parentID != nil {
+			// Check if parent folder exists and belongs to user
+			var parentFolder models.Folder
+			result = tx.Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", parentID, userID).First(&parentFolder)
+			if result.Error != nil {
+				if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+					return ErrTargetParentNotFoundOrDeleted
+				}
+				return result.Error
+			}
+
+			// 4. Check for circular dependency: cannot move folder into its own descendant
+			if err := checkCircularDependency(tx, userID, &folderID, parentID); err != nil {
+				return err
+			}
+		}
+
+		// 5. Check for naming conflict in the destination
+		var conflictCount int64
+		query := tx.Model(&models.Folder{}).Where("name = ? AND owner_user_id = ? AND deleted_at IS NULL", folder.Name, userID)
+		if parentID != nil {
+			query = query.Where("parent_id = ?", parentID)
+		} else {
+			query = query.Where("parent_id IS NULL")
+		}
+		if err := query.Count(&conflictCount).Error; err != nil {
+			return err
+		}
+		if conflictCount > 0 {
+			return errors.New("目标文件夹中已存在同名文件夹")
+		}
+
+		// 6. Update the parent_id
 		if err := tx.Model(&folder).Update("parent_id", parentID).Error; err != nil {
 			return err
 		}
@@ -2305,12 +2321,17 @@ func MoveFolder(userID uuid.UUID, folderID uuid.UUID, parentID *uuid.UUID) (*tim
 // Returns error if moving would create a circular reference
 func checkCircularDependency(db *gorm.DB, userID uuid.UUID, sourceFolderID, targetParentID *uuid.UUID) error {
 	currentID := targetParentID
+	visited := make(map[uuid.UUID]struct{})
 
 	// Traverse up the parent chain
 	for currentID != nil {
 		if *currentID == *sourceFolderID {
 			return ErrFolderMoveCycle
 		}
+		if _, exists := visited[*currentID]; exists {
+			return ErrFolderMoveCycle
+		}
+		visited[*currentID] = struct{}{}
 
 		// Get the parent folder
 		var parent models.Folder
@@ -2796,6 +2817,9 @@ func permanentDeleteFolderRecursive(tx *gorm.DB, userID uuid.UUID, folderID uuid
 
 // BatchMoveFiles moves multiple files and folders to a new destination.
 func BatchMoveFiles(userID uuid.UUID, itemsToMove []ItemToMove, destFolderID *uuid.UUID) (*BatchMoveResponse, error) {
+	folderHierarchyMu.Lock()
+	defer folderHierarchyMu.Unlock()
+
 	var movedCount int
 	var failedItems []FailedItem
 

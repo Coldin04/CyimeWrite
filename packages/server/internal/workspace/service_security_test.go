@@ -954,6 +954,73 @@ func stringPtr(value string) *string {
 	return &value
 }
 
+func seedFolderWithParentForWorkspace(t *testing.T, db *gorm.DB, ownerID uuid.UUID, name string, parentID *uuid.UUID) uuid.UUID {
+	t.Helper()
+	seedVerifiedUser(t, db, ownerID, ownerID.String()+"@example.com")
+
+	folder := models.Folder{
+		ID:          uuid.New(),
+		OwnerUserID: ownerID,
+		ParentID:    parentID,
+		Name:        name,
+		CreatedBy:   ownerID,
+		UpdatedBy:   ownerID,
+	}
+	if err := db.Create(&folder).Error; err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	return folder.ID
+}
+
+func TestCheckCircularDependency_DetectsExistingUnrelatedCycle(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+
+	folderA := seedFolderWithParentForWorkspace(t, db, ownerID, "A", nil)
+	folderB := seedFolderWithParentForWorkspace(t, db, ownerID, "B", &folderA)
+	folderC := seedFolderWithParentForWorkspace(t, db, ownerID, "C", nil)
+
+	if err := db.Model(&models.Folder{}).Where("id = ?", folderA).Update("parent_id", folderB).Error; err != nil {
+		t.Fatalf("create existing cycle: %v", err)
+	}
+
+	err := checkCircularDependency(db, ownerID, &folderC, &folderA)
+	if !errors.Is(err, ErrFolderMoveCycle) {
+		t.Fatalf("expected cycle error, got %v", err)
+	}
+}
+
+func TestDeleteFolderRecursive_DetectsExistingCycle(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+
+	folderA := seedFolderWithParentForWorkspace(t, db, ownerID, "A", nil)
+	folderB := seedFolderWithParentForWorkspace(t, db, ownerID, "B", &folderA)
+
+	if err := db.Model(&models.Folder{}).Where("id = ?", folderA).Update("parent_id", folderB).Error; err != nil {
+		t.Fatalf("create existing cycle: %v", err)
+	}
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		return deleteFolderRecursive(tx, ownerID, folderA)
+	})
+	if err == nil {
+		t.Fatal("expected recursive delete to reject folder cycle")
+	}
+}
+
+func TestMoveFolder_DetectsCycleInTransaction(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+
+	folderA := seedFolderWithParentForWorkspace(t, db, ownerID, "A", nil)
+	folderB := seedFolderWithParentForWorkspace(t, db, ownerID, "B", &folderA)
+
+	if _, err := MoveFolder(ownerID, folderA, &folderB); !errors.Is(err, ErrFolderMoveCycle) {
+		t.Fatalf("expected move cycle error, got %v", err)
+	}
+}
+
 func TestGetFilesCapsClientLimit(t *testing.T) {
 	db := setupWorkspaceTestDB(t)
 	ownerID := uuid.New()
