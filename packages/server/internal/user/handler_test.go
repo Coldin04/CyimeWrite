@@ -118,6 +118,33 @@ func TestUpdateProfileHandler_UpdatesDisplayName(t *testing.T) {
 	}
 }
 
+func TestGetMe_ReturnsAdminAccess(t *testing.T) {
+	db := setupUserTestDB(t)
+	user := seedUser(t, db)
+	role := models.AdminRoleAdmin
+	if err := db.Model(&models.User{}).Where("id = ?", user.ID).Update("admin_role", role).Error; err != nil {
+		t.Fatalf("set admin role: %v", err)
+	}
+
+	app := newUserTestApp(user.ID)
+	req := httptest.NewRequest(http.MethodGet, "/user/me", nil)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload UserResponseDTO
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.AdminAccess.HasAccess || payload.AdminAccess.Role == nil || *payload.AdminAccess.Role != models.AdminRoleAdmin {
+		t.Fatalf("unexpected admin access: %+v", payload.AdminAccess)
+	}
+}
+
 func TestCreateImageBedConfigHandler_StoresConfig(t *testing.T) {
 	db := setupUserTestDB(t)
 	user := seedUser(t, db)

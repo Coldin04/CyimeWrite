@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/config"
 	"g.co1d.in/Coldin04/Cyime/server/internal/database"
@@ -121,8 +123,9 @@ func main() {
 	fmt.Println("3. 删除单个登录提供商")
 	fmt.Println("4. 清空全部登录提供商")
 	fmt.Println("5. 修改提供商显示名称")
-	fmt.Println("6. 跳过（退出）")
-	fmt.Print("请选择 (1-6): ")
+	fmt.Println("6. 赋予用户 Admin 权限")
+	fmt.Println("7. 跳过（退出）")
+	fmt.Print("请选择 (1-7): ")
 
 	choice, _ := reader.ReadString('\n')
 	choice = strings.TrimSpace(choice)
@@ -147,6 +150,10 @@ func main() {
 			log.Fatalf("修改提供商显示名称失败：%v", err)
 		}
 	case "6":
+		if err := grantAdminInteractive(reader); err != nil {
+			log.Fatalf("授予 Admin 权限失败：%v", err)
+		}
+	case "7":
 		fmt.Println("已退出。你可以稍后重新运行初始化向导。")
 	default:
 		fmt.Println("无效的选择，已退出。")
@@ -368,6 +375,46 @@ func updateProviderDisplayNameInteractive(reader *bufio.Reader) error {
 	} else {
 		fmt.Printf("✅ 已将 '%s' 的显示名称更新为 '%s'。\n", provider.Name, nextDisplayName)
 	}
+	return nil
+}
+
+func grantAdminInteractive(reader *bufio.Reader) error {
+	fmt.Println()
+	fmt.Println("🔐 赋予用户 Admin 权限")
+	fmt.Println("----------------------")
+	fmt.Print("输入要授予权限的用户邮箱: ")
+
+	email, _ := reader.ReadString('\n')
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		fmt.Println("未输入邮箱，已取消。")
+		return nil
+	}
+
+	var currentUser models.User
+	if err := database.DB.Where("LOWER(email) = ?", email).First(&currentUser).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fmt.Printf("未找到邮箱为 '%s' 的用户。\n", email)
+			return nil
+		}
+		return err
+	}
+
+	if currentUser.AdminRole != nil && strings.TrimSpace(*currentUser.AdminRole) == models.AdminRoleAdmin {
+		fmt.Printf("用户 %s 已拥有 Admin 权限，无需重复设置。\n", email)
+		return nil
+	}
+
+	now := time.Now()
+	if err := database.DB.Model(&currentUser).Updates(map[string]any{
+		"admin_role":       models.AdminRoleAdmin,
+		"admin_granted_at": now,
+		"admin_granted_by": nil,
+	}).Error; err != nil {
+		return err
+	}
+
+	fmt.Printf("✅ 已将用户 %s 设置为 Admin。\n", email)
 	return nil
 }
 

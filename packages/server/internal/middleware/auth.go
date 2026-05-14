@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/auth"
+	"g.co1d.in/Coldin04/Cyime/server/internal/database"
+	"g.co1d.in/Coldin04/Cyime/server/internal/models"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -139,4 +141,39 @@ func OptionalProtected() fiber.Handler {
 		c.Locals("userId", claims.UserID.String())
 		return c.Next()
 	}
+}
+
+func RequireAdmin() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		userID, ok := c.Locals("userId").(string)
+		if !ok || strings.TrimSpace(userID) == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Invalid or expired JWT",
+			})
+		}
+
+		var currentUser models.User
+		if err := database.DB.Select("id", "admin_role").First(&currentUser, "id = ?", userID).Error; err != nil {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "Admin access required",
+			})
+		}
+
+		role := strings.TrimSpace(stringValue(currentUser.AdminRole))
+		if role != models.AdminRoleAdmin {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "Admin access required",
+			})
+		}
+
+		c.Locals("adminRole", role)
+		return c.Next()
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

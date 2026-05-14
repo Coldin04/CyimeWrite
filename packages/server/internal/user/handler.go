@@ -15,10 +15,16 @@ import (
 // UserResponseDTO defines the data structure for the user profile response.
 // This prevents leaking unwanted or sensitive fields from the database model.
 type UserResponseDTO struct {
-	ID          uuid.UUID `json:"id"`
-	Email       *string   `json:"email"`
-	DisplayName *string   `json:"displayName"`
-	AvatarURL   *string   `json:"avatarUrl"`
+	ID          uuid.UUID      `json:"id"`
+	Email       *string        `json:"email"`
+	DisplayName *string        `json:"displayName"`
+	AvatarURL   *string        `json:"avatarUrl"`
+	AdminAccess AdminAccessDTO `json:"adminAccess"`
+}
+
+type AdminAccessDTO struct {
+	HasAccess bool    `json:"hasAccess"`
+	Role      *string `json:"role"`
 }
 
 type OverviewResponseDTO struct {
@@ -450,5 +456,6 @@ func toUserResponseDTO(c *fiber.Ctx, user *models.User) (UserResponseDTO, error)
 		Email:       user.Email,
 		DisplayName: user.DisplayName,
 		AvatarURL:   avatarURL,
+		AdminAccess: BuildAdminAccessDTO(user),
 	}, nil
 }

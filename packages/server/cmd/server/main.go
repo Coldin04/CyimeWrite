@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"g.co1d.in/Coldin04/Cyime/server/internal/admin"
 	"g.co1d.in/Coldin04/Cyime/server/internal/auth"
 	"g.co1d.in/Coldin04/Cyime/server/internal/config"
 	"g.co1d.in/Coldin04/Cyime/server/internal/content"
@@ -91,6 +92,12 @@ func main() {
 	userRoutes.Post("/avatar", user.UploadAvatarHandler)
 	userRoutes.Put("/avatar/github", user.UpdateGitHubAvatarHandler)
 	userRoutes.Get("/avatar/content", user.GetAvatarContentHandler)
+
+	adminRoutes := api.Group("/admin", middleware.Protected(), middleware.RequireAdmin())
+	adminRoutes.Get("/overview", admin.GetOverviewHandler)
+	adminRoutes.Get("/users", admin.ListUsersHandler)
+	adminRoutes.Get("/users/:id", admin.GetUserHandler)
+	adminRoutes.Put("/users/:id/document-quota", admin.UpdateUserDocumentQuotaHandler)
 
 	// Workspace routes (protected)
 	workspaceRoutes := api.Group("/workspace", middleware.Protected())
