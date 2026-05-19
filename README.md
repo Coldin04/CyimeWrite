@@ -145,6 +145,7 @@ Cloudflare Pages 构建如果涉及 Node 内建模块兼容，仓库内已经提
 - 认证与会话
   - `JWT_SECRET_KEY`：JWT 与部分签名逻辑依赖的密钥，生产环境必须配置。
   - `ACCESS_TOKEN_LIFETIME_MINUTES`：Access Token 生命周期，默认 `15`。
+  - `ACCESS_TOKEN_LIFETIME_SECONDS`：Access Token 秒级生命周期覆盖项，优先级高于分钟配置，主要用于本地刷新链路测试。
   - `REFRESH_TOKEN_LIFETIME_HOURS`：Refresh Token 生命周期，默认 `720`（30 天）。
   - `FRONTEND_CALLBACK_URL`：登录成功后回跳到前端的地址。
 
