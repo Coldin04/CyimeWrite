@@ -63,6 +63,21 @@
 		updatePanelPosition();
 	}
 
+	$effect(() => {
+		if (!open) {
+			return;
+		}
+
+		const handleViewportChange = () => updatePanelPosition();
+		window.addEventListener('resize', handleViewportChange);
+		window.addEventListener('scroll', handleViewportChange, true);
+
+		return () => {
+			window.removeEventListener('resize', handleViewportChange);
+			window.removeEventListener('scroll', handleViewportChange, true);
+		};
+	});
+
 	function applyCustomLanguage() {
 		const normalized = normalizeCodeBlockLanguage(customValue);
 		if (!normalized) return;
