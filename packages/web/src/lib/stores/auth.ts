@@ -100,12 +100,16 @@ function createAuthStore() {
 		const expiresAt = getTokenExpiresAt(token);
 		if (!expiresAt) return;
 
-		const retryIn = Math.min(REFRESH_RETRY_DELAY_MS, expiresAt - Date.now() - EXPIRY_SKEW_MS);
-		if (retryIn > 0) {
-			refreshRetryTimerId = setTimeout(() => {
-				void refreshToken();
-			}, retryIn);
-		}
+		const now = Date.now();
+		const remainingLifetimeMs = expiresAt - now;
+		const retryIn = Math.max(
+			0,
+			Math.min(REFRESH_RETRY_DELAY_MS, remainingLifetimeMs - EXPIRY_SKEW_MS)
+		);
+
+		refreshRetryTimerId = setTimeout(() => {
+			void refreshToken();
+		}, retryIn);
 	}
 
 	async function requestNewAccessToken(): Promise<string> {
