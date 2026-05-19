@@ -24,6 +24,7 @@ let refreshRetryTimerId: NodeJS.Timeout | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 
 const REFRESH_RETRY_DELAY_MS = 30_000;
+const MIN_REFRESH_RETRY_DELAY_MS = 1_000;
 const REFRESH_UNAUTHORIZED_RETRY_DELAY_MS = 500;
 const EXPIRY_SKEW_MS = 10_000;
 
@@ -100,15 +101,19 @@ function createAuthStore() {
 		const expiresAt = getTokenExpiresAt(token);
 		if (!expiresAt) return;
 
-		const now = Date.now();
-		const remainingLifetimeMs = expiresAt - now;
-		const retryIn = Math.max(
-			0,
-			Math.min(REFRESH_RETRY_DELAY_MS, remainingLifetimeMs - EXPIRY_SKEW_MS)
-		);
+		const remainingLifetimeMs = expiresAt - Date.now();
+		if (remainingLifetimeMs <= 0) return;
+
+		const retryBeforeExpiryMs = remainingLifetimeMs - EXPIRY_SKEW_MS;
+		const retryIn =
+			retryBeforeExpiryMs > 0
+				? Math.min(REFRESH_RETRY_DELAY_MS, retryBeforeExpiryMs)
+				: Math.min(MIN_REFRESH_RETRY_DELAY_MS, remainingLifetimeMs);
 
 		refreshRetryTimerId = setTimeout(() => {
-			void refreshToken();
+			void refreshToken().catch((error) => {
+				console.error('Scheduled token refresh retry failed:', error);
+			});
 		}, retryIn);
 	}
 
