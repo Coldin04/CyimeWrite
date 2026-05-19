@@ -41,6 +41,11 @@ func newSecuredAdminTestApp() *fiber.App {
 	group.Get("/overview", GetOverviewHandler)
 	group.Get("/users", ListUsersHandler)
 	group.Get("/users/:id", GetUserHandler)
+	group.Get("/users/:id/sessions", ListUserSessionsHandler)
+	group.Delete("/users/:id/sessions/:sessionId", RevokeUserSessionHandler)
+	group.Get("/users/:id/media", ListUserMediaHandler)
+	group.Put("/users/:id/email", UpdateUserEmailHandler)
+	group.Post("/users/:id/verify-email", VerifyUserEmailHandler)
 	group.Put("/users/:id/document-quota", UpdateUserDocumentQuotaHandler)
 	return app
 }
@@ -62,19 +67,58 @@ func TestAdminRoutesRejectUnauthorizedAndNonAdminUsers(t *testing.T) {
 
 	nonAdminUser := seedAdminTestUser(t, db, "member@example.com", models.DocumentQuotaModeInherit, nil)
 	targetUser := seedAdminTestUser(t, db, "target@example.com", models.DocumentQuotaModeInherit, nil)
+	targetSession := models.UserSession{
+		ID:          uuid.New(),
+		UserID:      targetUser.ID,
+		UserAgent:   "test-agent",
+		DeviceLabel: "Chrome · Linux",
+		LastSeenAt:  time.Now(),
+	}
+	if err := db.Create(&targetSession).Error; err != nil {
+		t.Fatalf("create target session: %v", err)
+	}
+	targetToken := models.UserRefreshToken{
+		ID:        uuid.New(),
+		UserID:    targetUser.ID,
+		SessionID: targetSession.ID,
+		TokenHash: "security-test-token",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := db.Create(&targetToken).Error; err != nil {
+		t.Fatalf("create target token: %v", err)
+	}
 
 	app := newSecuredAdminTestApp()
 
 	tests := []struct {
-		name      string
-		method    string
-		target    string
-		body      string
-		expect401 bool
+		name          string
+		method        string
+		target        string
+		body          string
+		allowedStatus int
 	}{
 		{name: "overview", method: http.MethodGet, target: "/api/v1/admin/overview"},
 		{name: "list users", method: http.MethodGet, target: "/api/v1/admin/users"},
 		{name: "get user", method: http.MethodGet, target: "/api/v1/admin/users/" + targetUser.ID.String()},
+		{name: "get sessions", method: http.MethodGet, target: "/api/v1/admin/users/" + targetUser.ID.String() + "/sessions"},
+		{
+			name:          "revoke session",
+			method:        http.MethodDelete,
+			target:        "/api/v1/admin/users/" + targetUser.ID.String() + "/sessions/" + targetSession.ID.String(),
+			allowedStatus: http.StatusNoContent,
+		},
+		{name: "get media", method: http.MethodGet, target: "/api/v1/admin/users/" + targetUser.ID.String() + "/media"},
+		{
+			name:   "update email",
+			method: http.MethodPut,
+			target: "/api/v1/admin/users/" + targetUser.ID.String() + "/email",
+			body:   `{"email":"verified@example.com"}`,
+		},
+		{
+			name:   "verify email",
+			method: http.MethodPost,
+			target: "/api/v1/admin/users/" + targetUser.ID.String() + "/verify-email",
+		},
 		{
 			name:   "update user quota",
 			method: http.MethodPut,
@@ -123,8 +167,12 @@ func TestAdminRoutesRejectUnauthorizedAndNonAdminUsers(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("expected 200, got %d", resp.StatusCode)
+			expectedStatus := tt.allowedStatus
+			if expectedStatus == 0 {
+				expectedStatus = http.StatusOK
+			}
+			if resp.StatusCode != expectedStatus {
+				t.Fatalf("expected %d, got %d", expectedStatus, resp.StatusCode)
 			}
 		})
 	}

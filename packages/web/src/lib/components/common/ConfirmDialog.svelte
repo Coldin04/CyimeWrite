@@ -10,6 +10,8 @@
 		secondaryText,
 		cancelText,
 		confirmVariant = 'danger',
+		loading = false,
+		disabled = false,
 		onConfirm,
 		onSecondary,
 		onCancel
@@ -21,6 +23,8 @@
 		secondaryText?: string;
 		cancelText?: string;
 		confirmVariant?: 'danger' | 'primary';
+		loading?: boolean;
+		disabled?: boolean;
 		onConfirm?: () => void | Promise<void>;
 		onSecondary?: () => void | Promise<void>;
 		onCancel?: () => void;
@@ -69,6 +73,7 @@
 				<button
 					type="button"
 					class="rounded-md px-4 py-2 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+					disabled={loading}
 					onclick={() => onCancel?.()}
 				>
 					{cancelText ?? m.common_cancel()}
@@ -77,6 +82,7 @@
 					<button
 						type="button"
 						class="rounded-md px-4 py-2 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+						disabled={loading}
 						onclick={() => onSecondary?.()}
 					>
 						{secondaryText}
@@ -84,10 +90,11 @@
 				{/if}
 				<button
 					type="button"
-					class={`rounded-md px-4 py-2 text-sm transition-colors ${confirmClass}`}
+					class={`rounded-md px-4 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${confirmClass}`}
+					disabled={disabled || loading}
 					onclick={() => onConfirm?.()}
 				>
-					{confirmText ?? m.common_delete()}
+					{loading ? m.common_loading() : (confirmText ?? m.common_delete())}
 				</button>
 			</div>
 		</div>
