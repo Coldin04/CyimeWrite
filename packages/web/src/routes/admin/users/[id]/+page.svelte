@@ -231,7 +231,7 @@
 			toast.success(m.admin_users_purge_media_success());
 			showPurgeMediaConfirm = false;
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : 'Failed to purge media');
+			toast.error(error instanceof Error ? error.message : m.admin_users_purge_media_failed());
 		} finally {
 			actionLoading = false;
 		}
@@ -246,7 +246,7 @@
 			showPurgeDocsConfirm = false;
 			await loadUser(); // Refresh counts
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : 'Failed to purge documents');
+			toast.error(error instanceof Error ? error.message : m.admin_users_purge_docs_failed());
 		} finally {
 			actionLoading = false;
 		}
@@ -261,7 +261,7 @@
 			showUnregisterConfirm = false;
 			await goto('/admin/users');
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : 'Failed to unregister user');
+			toast.error(error instanceof Error ? error.message : m.admin_users_unregister_failed());
 		} finally {
 			actionLoading = false;
 		}
@@ -703,6 +703,7 @@
 	title={m.admin_users_purge_media_confirm_title()}
 	message={m.admin_users_purge_media_confirm_msg()}
 	confirmText={m.admin_users_purge_media_confirm_btn()}
+	loading={actionLoading}
 	onConfirm={handlePurgeMedia}
 	onCancel={() => (showPurgeMediaConfirm = false)}
 />
@@ -712,6 +713,7 @@
 	title={m.admin_users_purge_docs_confirm_title()}
 	message={m.admin_users_purge_docs_confirm_msg()}
 	confirmText={m.admin_users_purge_docs_confirm_btn()}
+	loading={actionLoading}
 	onConfirm={handlePurgeDocuments}
 	onCancel={() => (showPurgeDocsConfirm = false)}
 />

@@ -47,6 +47,9 @@ func newSecuredAdminTestApp() *fiber.App {
 	group.Put("/users/:id/email", UpdateUserEmailHandler)
 	group.Post("/users/:id/verify-email", VerifyUserEmailHandler)
 	group.Put("/users/:id/document-quota", UpdateUserDocumentQuotaHandler)
+	group.Post("/users/:id/purge-media", PurgeUserMediaHandler)
+	group.Post("/users/:id/purge-documents", PurgeUserDocumentsHandler)
+	group.Delete("/users/:id", UnregisterUserHandler)
 	return app
 }
 
@@ -124,6 +127,24 @@ func TestAdminRoutesRejectUnauthorizedAndNonAdminUsers(t *testing.T) {
 			method: http.MethodPut,
 			target: "/api/v1/admin/users/" + targetUser.ID.String() + "/document-quota",
 			body:   `{"documentQuotaMode":"inherit","documentQuota":null}`,
+		},
+		{
+			name:          "purge media",
+			method:        http.MethodPost,
+			target:        "/api/v1/admin/users/" + targetUser.ID.String() + "/purge-media",
+			allowedStatus: http.StatusNoContent,
+		},
+		{
+			name:          "purge documents",
+			method:        http.MethodPost,
+			target:        "/api/v1/admin/users/" + targetUser.ID.String() + "/purge-documents",
+			allowedStatus: http.StatusNoContent,
+		},
+		{
+			name:          "unregister user",
+			method:        http.MethodDelete,
+			target:        "/api/v1/admin/users/" + targetUser.ID.String(),
+			allowedStatus: http.StatusNoContent,
 		},
 	}
 

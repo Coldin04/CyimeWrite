@@ -255,6 +255,8 @@ func ListUserMediaHandler(c *fiber.Ctx) error {
 	})
 	if err != nil {
 		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found."})
 		case errors.Is(err, media.ErrInvalidAssetStatus), errors.Is(err, media.ErrInvalidAssetKind):
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		default:
@@ -413,6 +415,9 @@ func PurgeUserMediaHandler(c *fiber.Ctx) error {
 	}
 
 	if err := PurgeUserMedia(targetUserID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found."})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to purge user media."})
 	}
 
@@ -426,6 +431,9 @@ func PurgeUserDocumentsHandler(c *fiber.Ctx) error {
 	}
 
 	if err := PurgeUserDocuments(targetUserID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found."})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to purge user documents."})
 	}
 
@@ -445,10 +453,14 @@ func UnregisterUserHandler(c *fiber.Ctx) error {
 	}
 
 	if err := UnregisterUser(adminUserID, targetUserID); err != nil {
-		if err.Error() == "cannot unregister yourself" {
+		switch {
+		case errors.Is(err, ErrCannotUnregisterSelf):
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found."})
+		default:
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to unregister user."})
 		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to unregister user."})
 	}
 
 	return c.SendStatus(fiber.StatusNoContent)

@@ -13,4 +13,5 @@ var (
 	ErrEmailAlreadyInUse        = errors.New("email is already in use")
 	ErrEmailNotSet              = errors.New("user does not have an email address")
 	ErrCannotRevokeOwnSession   = errors.New("cannot revoke your own sessions from admin panel")
+	ErrCannotUnregisterSelf     = errors.New("cannot unregister yourself")
 )

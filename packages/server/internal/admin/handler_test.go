@@ -26,11 +26,20 @@ func setupAdminTestDB(t *testing.T) *gorm.DB {
 	}
 	if err := db.AutoMigrate(
 		&models.User{},
+		&models.UserIdentityProvider{},
+		&models.UserImageBedConfig{},
 		&models.Document{},
+		&models.DocumentBody{},
+		&models.DocumentPermission{},
+		&models.DocumentInvite{},
+		&models.DocumentImageTargetPreference{},
+		&models.Folder{},
 		&models.UserSession{},
 		&models.UserRefreshToken{},
 		&models.BlobObject{},
 		&models.Asset{},
+		&models.DocumentAssetRef{},
+		&models.Notification{},
 	); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
@@ -88,6 +97,9 @@ func newAdminTestApp(adminUserID uuid.UUID) *fiber.App {
 	app.Put("/admin/users/:id/email", UpdateUserEmailHandler)
 	app.Post("/admin/users/:id/verify-email", VerifyUserEmailHandler)
 	app.Put("/admin/users/:id/document-quota", UpdateUserDocumentQuotaHandler)
+	app.Post("/admin/users/:id/purge-media", PurgeUserMediaHandler)
+	app.Post("/admin/users/:id/purge-documents", PurgeUserDocumentsHandler)
+	app.Delete("/admin/users/:id", UnregisterUserHandler)
 	return app
 }
 
@@ -374,6 +386,87 @@ func TestListUserMediaHandler_OmitsDocumentReferenceFields(t *testing.T) {
 	}
 	if _, exists := first["documentId"]; exists {
 		t.Fatalf("documentId should not be exposed in admin media payload: %+v", first)
+	}
+}
+
+func TestPurgeUserMediaHandler_ReturnsErrorWhenAssetCannotBeDeleted(t *testing.T) {
+	db := setupAdminTestDB(t)
+	adminRole := models.AdminRoleAdmin
+	adminEmail := "admin@local.dev"
+	adminUser := models.User{
+		ID:        uuid.New(),
+		Email:     &adminEmail,
+		AdminRole: &adminRole,
+	}
+	if err := db.Create(&adminUser).Error; err != nil {
+		t.Fatalf("create admin user: %v", err)
+	}
+
+	targetUser := seedAdminTestUser(t, db, "referenced-media@example.com", models.DocumentQuotaModeInherit, nil)
+	blob := models.BlobObject{
+		ID:              uuid.New(),
+		OwnerUserID:     targetUser.ID,
+		SHA256:          strings.Repeat("b", 64),
+		Size:            1024,
+		MimeType:        "image/png",
+		StorageProvider: "local",
+		ObjectKey:       "media/referenced.png",
+		URL:             "https://example.com/referenced.png",
+		Status:          "ready",
+		ThumbnailStatus: "ready",
+	}
+	if err := db.Create(&blob).Error; err != nil {
+		t.Fatalf("create blob: %v", err)
+	}
+
+	asset := models.Asset{
+		ID:             uuid.New(),
+		OwnerUserID:    targetUser.ID,
+		BlobID:         blob.ID,
+		Kind:           "image",
+		Filename:       "referenced.png",
+		URL:            "https://example.com/referenced.png",
+		Visibility:     "private",
+		Status:         "ready",
+		ReferenceCount: 1,
+		CreatedBy:      targetUser.ID,
+	}
+	if err := db.Create(&asset).Error; err != nil {
+		t.Fatalf("create asset: %v", err)
+	}
+
+	app := newAdminTestApp(adminUser.ID)
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/"+targetUser.ID.String()+"/purge-media", nil)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestPurgeUserDocumentsHandler_ReturnsNotFoundForMissingUser(t *testing.T) {
+	db := setupAdminTestDB(t)
+	adminRole := models.AdminRoleAdmin
+	adminEmail := "admin@local.dev"
+	adminUser := models.User{
+		ID:        uuid.New(),
+		Email:     &adminEmail,
+		AdminRole: &adminRole,
+	}
+	if err := db.Create(&adminUser).Error; err != nil {
+		t.Fatalf("create admin user: %v", err)
+	}
+
+	app := newAdminTestApp(adminUser.ID)
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/"+uuid.NewString()+"/purge-documents", nil)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
 	}
 }
 

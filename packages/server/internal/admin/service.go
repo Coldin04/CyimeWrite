@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/mail"
 	"strings"
 	"time"
@@ -150,19 +151,19 @@ func ListUsers(params ListUsersParams) (*UserListResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	globalDocumentQuota, err := GlobalDocumentQuota()
+	if err != nil {
+		return nil, err
+	}
 
 	items := make([]UserListItem, 0, len(users))
 	for _, currentUser := range users {
-		effectiveQuota, err := userpkg.GetEffectiveDocumentQuota(currentUser.ID)
-		if err != nil {
-			return nil, err
-		}
 		counts := countsByUserID[currentUser.ID]
 		items = append(items, UserListItem{
 			User:                 currentUser,
 			ActiveDocumentCount:  counts.ActiveCount,
 			TrashedDocumentCount: counts.TrashedCount,
-			EffectiveQuota:       effectiveQuota,
+			EffectiveQuota:       resolveEffectiveDocumentQuota(currentUser, globalDocumentQuota),
 		})
 	}
 
@@ -278,7 +279,7 @@ func GetUser(targetUserID uuid.UUID) (*UserListItem, error) {
 		return nil, err
 	}
 
-	effectiveQuota, err := userpkg.GetEffectiveDocumentQuota(targetUserID)
+	globalDocumentQuota, err := GlobalDocumentQuota()
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +289,7 @@ func GetUser(targetUserID uuid.UUID) (*UserListItem, error) {
 		User:                 currentUser,
 		ActiveDocumentCount:  counts.ActiveCount,
 		TrashedDocumentCount: counts.TrashedCount,
-		EffectiveQuota:       effectiveQuota,
+		EffectiveQuota:       resolveEffectiveDocumentQuota(currentUser, globalDocumentQuota),
 	}, nil
 }
 
@@ -402,6 +403,26 @@ func GlobalDocumentQuota() (*int, error) {
 	return config.GetOptionalNonNegativeInt("DEFAULT_DOCUMENT_QUOTA")
 }
 
+func resolveEffectiveDocumentQuota(currentUser models.User, globalDocumentQuota *int) *int {
+	switch strings.TrimSpace(currentUser.DocumentQuotaMode) {
+	case models.DocumentQuotaModeUnlimited:
+		return nil
+	case models.DocumentQuotaModeCustom:
+		return currentUser.DocumentQuota
+	}
+
+	if currentUser.DocumentQuota != nil {
+		return currentUser.DocumentQuota
+	}
+
+	return globalDocumentQuota
+}
+
+func ensureUserExists(tx *gorm.DB, targetUserID uuid.UUID) error {
+	var currentUser models.User
+	return tx.Select("id").First(&currentUser, "id = ?", targetUserID).Error
+}
+
 func ListUserSessions(targetUserID uuid.UUID, params ListUserSessionsParams) (*AdminSessionListResult, error) {
 	normalizedLimit := params.Limit
 	if normalizedLimit <= 0 {
@@ -424,20 +445,22 @@ func ListUserSessions(targetUserID uuid.UUID, params ListUserSessionsParams) (*A
 	}
 
 	now := time.Now()
-	activeSessionsQuery := database.DB.Table("user_sessions AS s").
-		Select("s.id, MAX(s.last_seen_at) AS last_seen_at").
-		Joins("JOIN user_refresh_tokens AS rt ON rt.session_id = s.id AND rt.user_id = s.user_id").
-		Where("s.user_id = ? AND s.revoked_at IS NULL AND s.deleted_at IS NULL AND rt.expires_at > ?", targetUserID, now).
-		Group("s.id")
+	activeSessionsQuery := func() *gorm.DB {
+		return database.DB.Table("user_sessions AS s").
+			Select("s.id, MAX(s.last_seen_at) AS last_seen_at").
+			Joins("JOIN user_refresh_tokens AS rt ON rt.session_id = s.id AND rt.user_id = s.user_id").
+			Where("s.user_id = ? AND s.revoked_at IS NULL AND s.deleted_at IS NULL AND rt.expires_at > ?", targetUserID, now).
+			Group("s.id")
+	}
 
 	var total int64
-	if err := database.DB.Table("(?) AS active_sessions", activeSessionsQuery).
+	if err := database.DB.Table("(?) AS active_sessions", activeSessionsQuery()).
 		Count(&total).Error; err != nil {
 		return nil, err
 	}
 
 	var sessionIDs []uuid.UUID
-	if err := database.DB.Table("(?) AS active_sessions", activeSessionsQuery).
+	if err := database.DB.Table("(?) AS active_sessions", activeSessionsQuery()).
 		Select("id").
 		Order("last_seen_at DESC").
 		Order("id DESC").
@@ -542,6 +565,10 @@ func RevokeUserSession(adminUserID, targetUserID, sessionID uuid.UUID) error {
 }
 
 func ListUserMedia(targetUserID uuid.UUID, params ListUserMediaParams) (*media.ListAssetsResult, error) {
+	if err := ensureUserExists(database.DB, targetUserID); err != nil {
+		return nil, err
+	}
+
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 20
@@ -572,24 +599,29 @@ func ListUserMedia(targetUserID uuid.UUID, params ListUserMediaParams) (*media.L
 }
 
 func PurgeUserMedia(targetUserID uuid.UUID) error {
+	if err := ensureUserExists(database.DB, targetUserID); err != nil {
+		return err
+	}
+
 	var assets []models.Asset
 	if err := database.DB.Where("owner_user_id = ? AND deleted_at IS NULL", targetUserID).Find(&assets).Error; err != nil {
 		return err
 	}
 
+	var deleteErrors []error
 	for _, asset := range assets {
-		// Leverage existing logic to handle GC scheduling and reference checks
 		if err := media.DeleteOwnedUnusedAsset(context.Background(), targetUserID, asset.ID); err != nil {
-			// If it's still referenced, we might want to skip or handle it.
-			// For a full purge, we expect documents to be gone eventually, but media purge can happen separately.
-			// We continue to purge as much as possible.
-			continue
+			deleteErrors = append(deleteErrors, fmt.Errorf("delete asset %s: %w", asset.ID, err))
 		}
 	}
-	return nil
+	return errors.Join(deleteErrors...)
 }
 
 func PurgeUserDocuments(targetUserID uuid.UUID) error {
+	if err := ensureUserExists(database.DB, targetUserID); err != nil {
+		return err
+	}
+
 	return database.DB.Transaction(func(tx *gorm.DB) error {
 		return purgeUserDocumentsTx(tx, targetUserID)
 	})
@@ -597,11 +629,21 @@ func PurgeUserDocuments(targetUserID uuid.UUID) error {
 
 func UnregisterUser(adminUserID, targetUserID uuid.UUID) error {
 	if adminUserID == targetUserID {
-		return errors.New("cannot unregister yourself")
+		return ErrCannotUnregisterSelf
 	}
 
 	var user models.User
 	if err := database.DB.First(&user, "id = ?", targetUserID).Error; err != nil {
+		return err
+	}
+
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := purgeUserDocumentsTx(tx, targetUserID); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
 		return err
 	}
 
@@ -610,10 +652,6 @@ func UnregisterUser(adminUserID, targetUserID uuid.UUID) error {
 	}
 
 	return database.DB.Transaction(func(tx *gorm.DB) error {
-		if err := purgeUserDocumentsTx(tx, targetUserID); err != nil {
-			return err
-		}
-
 		if err := tx.Where("user_id = ?", targetUserID).Delete(&models.UserRefreshToken{}).Error; err != nil {
 			return err
 		}
