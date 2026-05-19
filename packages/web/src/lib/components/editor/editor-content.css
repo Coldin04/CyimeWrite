@@ -6,8 +6,17 @@
 	--editor-surface-soft: rgb(244 244 245);
 	--editor-surface-muted: rgb(250 250 250);
 	--editor-code-bg: rgb(244 244 245);
-	--editor-pre-bg: rgb(24 24 27);
-	--editor-pre-fg: rgb(250 250 250);
+	--editor-pre-border: rgb(207 211 220);
+	--editor-pre-bg: #e7e9ee;
+	--editor-pre-fg: #242733;
+	--editor-code-comment: #71717a;
+	--editor-code-string: #256c4f;
+	--editor-code-number: #8a5a22;
+	--editor-code-keyword: #5b4b8a;
+	--editor-code-type: #2f6473;
+	--editor-code-title: #7a4f12;
+	--editor-code-variable: #6b4e7f;
+	--editor-code-operator: #3f3f46;
 	--editor-quote-bg: rgb(250 250 250);
 	--editor-table-head: rgb(244 244 245);
 	--editor-link: rgb(59 130 246);
@@ -29,8 +38,17 @@
 		--editor-surface-soft: rgb(39 39 42);
 		--editor-surface-muted: rgb(24 24 27);
 		--editor-code-bg: rgb(39 39 42);
-		--editor-pre-bg: rgb(9 9 11);
-		--editor-pre-fg: rgb(244 244 245);
+		--editor-pre-border: rgb(63 63 70 / 0.72);
+		--editor-pre-bg: #1a1b26;
+		--editor-pre-fg: rgb(224 224 232);
+		--editor-code-comment: rgb(113 113 122);
+		--editor-code-string: rgb(134 239 172);
+		--editor-code-number: rgb(253 186 116);
+		--editor-code-keyword: rgb(147 197 253);
+		--editor-code-type: rgb(103 232 249);
+		--editor-code-title: rgb(252 211 77);
+		--editor-code-variable: rgb(196 181 253);
+		--editor-code-operator: rgb(244 244 245);
 		--editor-quote-bg: rgb(24 24 27);
 		--editor-table-head: rgb(39 39 42);
 		--editor-link: rgb(96 165 250);
@@ -169,21 +187,74 @@
 .tiptap code {
 	background: var(--editor-code-bg);
 	border-radius: 0.4rem;
+	font-size: 0.92em;
+	font-weight: 400;
 	padding: 0.125rem 0.25rem;
 }
 
 .tiptap pre {
 	background: var(--editor-pre-bg);
-	border-radius: 1rem;
-	box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
+	border: 1px solid var(--editor-pre-border);
+	border-radius: 0.375rem;
+	box-shadow: 0 10px 24px rgb(24 24 27 / 0.05);
 	color: var(--editor-pre-fg);
 	overflow-x: auto;
-	padding: 1rem 1.1rem;
+	padding: 0.85rem 1rem;
+	position: relative;
 }
 
 .tiptap pre code {
 	background: transparent;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
+	font-size: 0.875rem;
+	font-weight: 400;
+	line-height: 1.7;
 	padding: 0;
+}
+
+.tiptap .hljs-comment,
+.tiptap .hljs-quote {
+	color: var(--editor-code-comment);
+	font-style: italic;
+}
+
+.tiptap .hljs-string,
+.tiptap .hljs-regexp,
+.tiptap .hljs-symbol {
+	color: var(--editor-code-string);
+}
+
+.tiptap .hljs-number,
+.tiptap .hljs-literal {
+	color: var(--editor-code-number);
+}
+
+.tiptap .hljs-keyword,
+.tiptap .hljs-meta {
+	color: var(--editor-code-keyword);
+	font-weight: 600;
+}
+
+.tiptap .hljs-type,
+.tiptap .hljs-built_in {
+	color: var(--editor-code-type);
+}
+
+.tiptap .hljs-title,
+.tiptap .hljs-title.function_,
+.tiptap .hljs-name {
+	color: var(--editor-code-title);
+}
+
+.tiptap .hljs-variable,
+.tiptap .hljs-params,
+.tiptap .hljs-attr {
+	color: var(--editor-code-variable);
+}
+
+.tiptap .hljs-operator,
+.tiptap .hljs-punctuation {
+	color: var(--editor-code-operator);
 }
 
 .tiptap .tiptap-mathematics-render {

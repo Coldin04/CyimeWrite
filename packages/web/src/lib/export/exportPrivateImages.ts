@@ -20,6 +20,16 @@ export type ManagedImageUsage = {
 	alt: string | null;
 };
 
+export class ExportCopyError extends Error {
+	content: string;
+
+	constructor(message: string, content: string) {
+		super(message);
+		this.name = 'ExportCopyError';
+		this.content = content;
+	}
+}
+
 export function cloneContentJson(value: JSONContent): JSONContent {
 	return JSON.parse(JSON.stringify(value)) as JSONContent;
 }
@@ -113,16 +123,83 @@ export function buildExportAssetFilename(
 ): string {
 	const rawLabel = (fallbackLabel ?? '').trim() || `asset-${assetId}`;
 	const safeLabel = rawLabel.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
-	const extension = mimeType === 'image/png'
-		? 'png'
-		: mimeType === 'image/jpeg'
-			? 'jpg'
-			: mimeType === 'image/webp'
-				? 'webp'
-				: mimeType === 'image/gif'
-					? 'gif'
-					: 'bin';
-	return `${safeLabel || `asset-${assetId}`}.${extension}`;
+	const extension = resolveExportAssetExtension(mimeType, safeLabel);
+	const basename = stripExportAssetExtension(safeLabel || `asset-${assetId}`);
+	return `${basename || `asset-${assetId}`}.${extension}`;
+}
+
+export function inferExportAssetMimeType(
+	mimeType: string,
+	fallbackLabel?: string | null,
+	src?: string | null
+): string {
+	const normalized = normalizeMimeType(mimeType);
+	if (isSupportedExportImageMimeType(normalized)) {
+		return normalized;
+	}
+
+	const extension = getImageExtensionFromLabel(fallbackLabel) ?? getImageExtensionFromURL(src);
+	switch (extension) {
+		case 'png':
+			return 'image/png';
+		case 'jpg':
+		case 'jpeg':
+			return 'image/jpeg';
+		case 'webp':
+			return 'image/webp';
+		case 'gif':
+			return 'image/gif';
+		default:
+			return normalized || 'application/octet-stream';
+	}
+}
+
+function resolveExportAssetExtension(mimeType: string, fallbackLabel?: string | null): string {
+	const normalized = normalizeMimeType(mimeType);
+	switch (normalized) {
+		case 'image/png':
+			return 'png';
+		case 'image/jpeg':
+			return 'jpg';
+		case 'image/webp':
+			return 'webp';
+		case 'image/gif':
+			return 'gif';
+		default:
+			return getImageExtensionFromLabel(fallbackLabel) ?? 'bin';
+	}
+}
+
+function stripExportAssetExtension(value: string): string {
+	return value.replace(/\.(?:png|jpe?g|webp|gif|bin)$/i, '').trim();
+}
+
+function normalizeMimeType(value: string): string {
+	return value.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+}
+
+function isSupportedExportImageMimeType(value: string): boolean {
+	return value === 'image/png' || value === 'image/jpeg' || value === 'image/webp' || value === 'image/gif';
+}
+
+function getImageExtensionFromLabel(value?: string | null): string | null {
+	const match = value?.trim().toLowerCase().match(/\.([a-z0-9]+)$/);
+	const extension = match?.[1] ?? '';
+	return extension === 'png' || extension === 'jpg' || extension === 'jpeg' || extension === 'webp' || extension === 'gif'
+		? extension
+		: null;
+}
+
+function getImageExtensionFromURL(value?: string | null): string | null {
+	if (!value) {
+		return null;
+	}
+	try {
+		const parsed = new URL(value);
+		return getImageExtensionFromLabel(parsed.pathname);
+	} catch {
+		return getImageExtensionFromLabel(value);
+	}
 }
 
 export async function runExportAction(action: ExportAction, options: {
@@ -137,7 +214,7 @@ export async function runExportAction(action: ExportAction, options: {
 		const bbcode = exportBBCode(options.contentJson);
 		const copied = await copyToClipboard(bbcode);
 		if (!copied) {
-			throw new Error('copy_bbcode_failed');
+			throw new ExportCopyError('copy_bbcode_failed', bbcode);
 		}
 		return 'copied';
 	}
@@ -155,7 +232,7 @@ export async function runExportAction(action: ExportAction, options: {
 	if (action === 'copy-markdown') {
 		const copied = await copyToClipboard(markdown);
 		if (!copied) {
-			throw new Error('copy_markdown_failed');
+			throw new ExportCopyError('copy_markdown_failed', markdown);
 		}
 		return 'copied';
 	}

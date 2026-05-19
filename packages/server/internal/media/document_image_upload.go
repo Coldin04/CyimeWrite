@@ -73,7 +73,7 @@ func newDocumentImageError(code DocumentImageErrorCode, message string) error {
 //     URL. The DialContext guard is enough on its own, but capping keeps
 //     request budgets sane and makes error messages more actionable.
 var imageBedHTTPClient = &http.Client{
-	Timeout: 30 * time.Second,
+	Timeout: 90 * time.Second,
 	Transport: &http.Transport{
 		// Indirect through the package-level imageBedDialContext variable so
 		// tests can install a loopback-friendly dialer. Production still
@@ -82,7 +82,7 @@ var imageBedHTTPClient = &http.Client{
 			return imageBedDialContext(ctx, network, addr)
 		},
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 15 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {

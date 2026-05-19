@@ -10,6 +10,7 @@
 	import EditorTopBar from '$lib/components/editor/EditorTopBar.svelte';
 	import ExportPrivateImagesDialog from '$lib/components/editor/ExportPrivateImagesDialog.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	import ModalDialog from '$lib/components/common/ModalDialog.svelte';
 	import {
 		defaultAutoSaveEnabled,
 		defaultAutoSaveIntervalSeconds,
@@ -44,9 +45,11 @@
 		collectImageNodes,
 		collectManagedImages,
 		cloneContentJson,
+		ExportCopyError,
 		exportPdfDocument,
 		exportHtmlDocument,
 		getManagedAssetId,
+		inferExportAssetMimeType,
 		inlineManagedImagesAsDataURLs,
 		replaceManagedImagesWithPublicURLs,
 		runExportAction
@@ -102,6 +105,8 @@
 	let isPreparingExport = $state(false);
 	let pendingExportAction = $state<ExportAction | null>(null);
 	let exportTargetId = $state('');
+	let manualCopyContent = $state('');
+	let manualCopyTitle = $state('');
 	let autoSaveEnabled = $state(defaultAutoSaveEnabled);
 	let autoSaveIntervalSeconds = $state(defaultAutoSaveIntervalSeconds);
 	let hasPendingCollaborationSave = $state(false);
@@ -346,6 +351,18 @@
 			}
 		} catch (error) {
 			console.error('[Export] Failed to export document:', error);
+			if (error instanceof ExportCopyError && error.message === 'copy_markdown_failed') {
+				manualCopyTitle = m.editor_export_copy_markdown();
+				manualCopyContent = error.content;
+				toast.error(m.editor_export_markdown_copy_failed());
+				return;
+			}
+			if (error instanceof ExportCopyError && error.message === 'copy_bbcode_failed') {
+				manualCopyTitle = m.editor_export_copy_bbcode();
+				manualCopyContent = error.content;
+				toast.error(m.editor_export_bbcode_copy_failed());
+				return;
+			}
 			if (error instanceof Error && error.message === 'copy_markdown_failed') {
 				toast.error(m.editor_export_markdown_copy_failed());
 				return;
@@ -357,6 +374,21 @@
 			toast.error(m.editor_export_failed());
 		}
 	}
+
+	function closeManualCopyDialog() {
+		manualCopyContent = '';
+		manualCopyTitle = '';
+	}
+
+async function retryManualCopy() {
+	try {
+		await navigator.clipboard.writeText(manualCopyContent);
+		toast.success(m.editor_export_manual_copy_success());
+		closeManualCopyDialog();
+		} catch {
+			toast.error(m.editor_export_manual_copy_failed());
+	}
+}
 
 	async function prepareExportContentWithPublicImages(targetId: string): Promise<JSONContent> {
 		if (!documentId) {
@@ -392,7 +424,11 @@
 				}
 
 				const blob = await response.blob();
-				const mimeType = blob.type || 'application/octet-stream';
+				const mimeType = inferExportAssetMimeType(
+					blob.type || response.headers.get('content-type') || '',
+					item.title ?? item.alt,
+					item.src
+				);
 				const file = new File(
 					[blob],
 					buildExportAssetFilename(item.assetId, mimeType, item.title ?? item.alt),
@@ -406,6 +442,21 @@
 		} finally {
 			toast.dismiss('export-private-images');
 		}
+	}
+
+	function resolveExportErrorMessage(error: unknown): string {
+		const apiError = error as { code?: string; status?: number; message?: string } | undefined;
+		const message = error instanceof Error ? error.message : (apiError?.message ?? '');
+		if (
+			apiError?.code === 'DOCUMENT_IMAGE_PROVIDER_UPLOAD_FAILED' &&
+			/timeout|awaiting response headers|deadline exceeded/i.test(message)
+		) {
+			return m.editor_export_image_bed_timeout();
+		}
+		if (apiError?.code === 'DOCUMENT_IMAGE_PROVIDER_UPLOAD_FAILED') {
+			return m.editor_export_image_bed_upload_failed();
+		}
+		return message.trim() !== '' ? message : m.editor_export_failed();
 	}
 
 	function closeExportPrivateImagesDialog() {
@@ -446,7 +497,7 @@
 			await finalizeExportWithProcessedContent(exportContent);
 		} catch (error) {
 			console.error('[Export] Failed to create export copy:', error);
-			toast.error(error instanceof Error && error.message.trim() !== '' ? error.message : m.editor_export_failed());
+			toast.error(resolveExportErrorMessage(error));
 		} finally {
 			isPreparingExport = false;
 		}
@@ -475,7 +526,7 @@
 			await finalizeExportWithProcessedContent(exportContent);
 		} catch (error) {
 			console.error('[Export] Failed to replace private images for export:', error);
-			toast.error(error instanceof Error && error.message.trim() !== '' ? error.message : m.editor_export_failed());
+			toast.error(resolveExportErrorMessage(error));
 		} finally {
 			isPreparingExport = false;
 		}
@@ -650,6 +701,20 @@
 		const token = ++nextEditorContentOverrideToken;
 		editorContentOverride = { token, content: nextContent };
 		await tick();
+		window.setTimeout(() => {
+			if (
+				editorContentOverrideWaiter &&
+				editorContentOverrideWaiter.expectedSerializedContent === serializeComparableContent(nextContent)
+			) {
+				content = nextContent;
+				hasUnsavedChanges = true;
+				if (saveDriver === 'collaboration') {
+					localCollaborationChangeSeq += 1;
+					hasPendingCollaborationSave = true;
+				}
+				settleEditorContentOverrideWaiter(true);
+			}
+		}, 0);
 		return result;
 	}
 
@@ -1685,3 +1750,44 @@
 	onSaveAs={handleExportWithSaveAs}
 	onReplace={handleExportWithReplace}
 />
+
+<ModalDialog
+	open={manualCopyContent.trim() !== ''}
+	title={manualCopyTitle || m.editor_export_manual_copy_title()}
+	maxWidthClass="max-w-3xl"
+	onClose={closeManualCopyDialog}
+>
+	<div class="space-y-4">
+		<div>
+			<h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+				{m.editor_export_manual_copy_title()}
+			</h2>
+			<p class="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
+				{m.editor_export_manual_copy_description()}
+			</p>
+		</div>
+		<textarea
+			readonly
+			spellcheck="false"
+			value={manualCopyContent}
+			class="h-72 w-full resize-none rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs leading-5 text-zinc-800 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+			onfocus={(event) => event.currentTarget.select()}
+		></textarea>
+		<div class="flex justify-end gap-2">
+			<button
+				type="button"
+				class="inline-flex h-8 items-center rounded-md px-3 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+				onclick={closeManualCopyDialog}
+			>
+				{m.common_cancel()}
+			</button>
+			<button
+				type="button"
+				class="inline-flex h-8 items-center rounded-md bg-zinc-900 px-3 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+				onclick={retryManualCopy}
+			>
+				{m.editor_export_manual_copy_action()}
+			</button>
+		</div>
+	</div>
+</ModalDialog>

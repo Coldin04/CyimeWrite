@@ -28,6 +28,8 @@
 	import Code from '~icons/ph/code';
 	import Minus from '~icons/ph/minus';
 	import { CyImage, cyImageAlignments, cyImageWidths } from '$lib/components/editor/CyImage';
+	import { createCodeBlockLowlightExtension } from '$lib/components/editor/codeHighlight';
+	import CodeLanguageMenu from '$lib/components/editor/CodeLanguageMenu.svelte';
 	import ImageTitleControls from '$lib/components/editor/ImageTitleControls.svelte';
 	import HeadingLevelMenu from '$lib/components/editor/HeadingLevelMenu.svelte';
 	import ImageLayoutControls from '$lib/components/editor/ImageLayoutControls.svelte';
@@ -148,7 +150,6 @@
 		'#c2410c',
 		'#b91c1c'
 	] as const;
-
 	const MathValidation = Extension.create({
 		name: 'mathValidation',
 		addProseMirrorPlugins() {
@@ -853,9 +854,11 @@
 				heading: {
 					levels: [...headingLevels]
 				},
+				codeBlock: false,
 				link: false,
 				...(collaboration?.doc ? { undoRedo: false } : {})
 			}),
+			createCodeBlockLowlightExtension(),
 			CyImage.configure({
 				inline: false,
 				allowBase64: true
@@ -1030,7 +1033,11 @@
 					}
 				},
 				attributes: {
-					class: editorRootClass
+					autocapitalize: 'off',
+					autocomplete: 'off',
+					autocorrect: 'off',
+					class: editorRootClass,
+					spellcheck: 'false'
 				}
 			},
 			onUpdate: ({ editor }) => {
@@ -1284,6 +1291,13 @@
 		return typeof attrs.latex === 'string' ? attrs.latex : '';
 	}
 
+	function currentCodeBlockLanguage() {
+		editorRevision;
+		if (!editor || !editor.isActive('codeBlock')) return '';
+		const attrs = editor.getAttributes('codeBlock');
+		return typeof attrs.language === 'string' ? attrs.language : '';
+	}
+
 	function applyImageWidth(width: string) {
 		if (!editor || !editor.isActive('image')) {
 			return;
@@ -1444,6 +1458,18 @@
 		editorRevision += 1;
 	}
 
+	function applyCodeBlockLanguage(language: string) {
+		if (!editor || !editor.isActive('codeBlock')) return;
+		editor
+			.chain()
+			.focus()
+			.updateAttributes('codeBlock', {
+				language: language === '' ? null : language
+			})
+			.run();
+		editorRevision += 1;
+	}
+
 	function removeInlineMath() {
 		if (!editor || !editor.isActive('inlineMath')) return;
 		editor.chain().focus().deleteInlineMath().run();
@@ -1455,6 +1481,8 @@
 		'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800';
 	const iconButtonBaseClass =
 		'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50';
+	const toolbarToggleButtonClass =
+		'inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs leading-none transition-colors';
 </script>
 
 <div class="flex h-full w-full flex-col">
@@ -1520,7 +1548,7 @@
 				type="button"
 				title={m.editor_toolbar_bold()}
 				aria-label={m.editor_toolbar_bold()}
-				class={`rounded-md px-2 py-1 text-xs font-semibold leading-none transition-colors ${
+				class={`${toolbarToggleButtonClass} font-semibold ${
 					isActive('bold') ? activeToggleClass : inactiveToggleClass
 				}`}
 				onclick={() =>
@@ -1534,7 +1562,7 @@
 				type="button"
 				title={m.editor_toolbar_italic()}
 				aria-label={m.editor_toolbar_italic()}
-				class={`rounded-md px-2 py-1 text-xs italic leading-none transition-colors ${
+				class={`${toolbarToggleButtonClass} italic ${
 					isActive('italic') ? activeToggleClass : inactiveToggleClass
 				}`}
 				onclick={() =>
@@ -1550,7 +1578,7 @@
 				type="button"
 				title={m.editor_toolbar_bullet_list()}
 				aria-label={m.editor_toolbar_bullet_list()}
-				class={`rounded-md px-2 py-1 text-xs leading-none transition-colors ${
+				class={`${toolbarToggleButtonClass} ${
 					isActive('bulletList') ? activeToggleClass : inactiveToggleClass
 				}`}
 				onclick={() =>
@@ -1564,7 +1592,7 @@
 				type="button"
 				title={m.editor_toolbar_numbered_list()}
 				aria-label={m.editor_toolbar_numbered_list()}
-				class={`rounded-md px-2 py-1 text-xs leading-none transition-colors ${
+				class={`${toolbarToggleButtonClass} ${
 					isActive('orderedList') ? activeToggleClass : inactiveToggleClass
 				}`}
 				onclick={() =>
@@ -1578,7 +1606,7 @@
 				type="button"
 				title={m.editor_toolbar_blockquote()}
 				aria-label={m.editor_toolbar_blockquote()}
-				class={`rounded-md px-2 py-1 text-xs leading-none transition-colors ${
+				class={`${toolbarToggleButtonClass} ${
 					isActive('blockquote') ? activeToggleClass : inactiveToggleClass
 				}`}
 				onclick={() =>
@@ -1592,7 +1620,7 @@
 				type="button"
 				title={m.editor_toolbar_code_block()}
 				aria-label={m.editor_toolbar_code_block()}
-				class={`rounded-md px-2 py-1 text-xs leading-none transition-colors ${
+				class={`${toolbarToggleButtonClass} ${
 					isActive('codeBlock') ? activeToggleClass : inactiveToggleClass
 				}`}
 				onclick={() =>
@@ -1602,11 +1630,14 @@
 			>
 				<Code class="h-4 w-4" />
 			</button>
+			{#if isActive('codeBlock')}
+				<CodeLanguageMenu currentValue={currentCodeBlockLanguage()} onSelect={applyCodeBlockLanguage} />
+			{/if}
 			<button
 				type="button"
 				title={m.editor_toolbar_divider()}
 				aria-label={m.editor_toolbar_divider()}
-				class={`rounded-md px-2 py-1 text-xs leading-none transition-colors ${inactiveToggleClass}`}
+				class={`${toolbarToggleButtonClass} ${inactiveToggleClass}`}
 				onclick={() =>
 					apply((instance) => {
 						instance.chain().focus().setHorizontalRule().run();
@@ -1624,7 +1655,7 @@
 				type="button"
 				title={m.editor_math_block_title()}
 				aria-label={m.editor_math_block_title()}
-				class={`rounded-md px-2 py-1 text-[11px] font-medium leading-none transition-colors ${
+				class={`${toolbarToggleButtonClass} text-[11px] font-medium ${
 					isActive('blockMath') ? activeToggleClass : inactiveToggleClass
 				}`}
 				onclick={() => openMathDialog('block')}

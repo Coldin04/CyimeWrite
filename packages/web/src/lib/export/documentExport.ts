@@ -241,7 +241,7 @@ export function exportMarkdown(contentJson: JSONContent): string {
 				return;
 			}
 			case 'codeBlock':
-				lines.push('```');
+				lines.push(`\`\`\`${typeof node.attrs?.language === 'string' ? node.attrs.language : ''}`);
 				lines.push(getText(node));
 				lines.push('```');
 				lines.push('');

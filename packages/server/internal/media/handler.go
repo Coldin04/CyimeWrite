@@ -695,6 +695,17 @@ func UploadDocumentAssetHandler(c *fiber.Ctx) error {
 
 // UploadDocumentImageHandler handles POST /api/v1/edit/documents/:id/paste-image
 func UploadDocumentImageHandler(c *fiber.Ctx) error {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[media.document-image] panic: %v", r)
+			_ = c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+				Error:   "Upload Failed",
+				Code:    "DOCUMENT_IMAGE_UPLOAD_FAILED",
+				Message: "document image upload handler panic",
+			})
+		}
+	}()
+
 	userIDStr, ok := c.Locals("userId").(string)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
@@ -728,6 +739,7 @@ func UploadDocumentImageHandler(c *fiber.Ctx) error {
 		})
 	}
 
+	log.Printf("[media.document-image] start document=%s user=%s filename=%q size=%d target=%q", documentID, userID, fileHeader.Filename, fileHeader.Size, c.FormValue("targetId"))
 	result, err := UploadDocumentImage(c.UserContext(), UploadDocumentImageRequest{
 		DocumentID: documentID,
 		UserID:     userID,
@@ -771,6 +783,7 @@ func UploadDocumentImageHandler(c *fiber.Ctx) error {
 			status = fiber.StatusRequestEntityTooLarge
 			code = "DOCUMENT_IMAGE_FILE_TOO_LARGE"
 		}
+		log.Printf("[media.document-image] failed document=%s user=%s filename=%q target=%q status=%d code=%s err=%v", documentID, userID, fileHeader.Filename, c.FormValue("targetId"), status, code, err)
 		return c.Status(status).JSON(ErrorResponse{
 			Error:   "Upload Failed",
 			Code:    code,
@@ -799,5 +812,6 @@ func UploadDocumentImageHandler(c *fiber.Ctx) error {
 		}
 	}
 
+	log.Printf("[media.document-image] success document=%s user=%s target=%s mode=%s", documentID, userID, result.TargetID, result.Mode)
 	return c.Status(fiber.StatusCreated).JSON(response)
 }

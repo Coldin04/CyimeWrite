@@ -109,7 +109,7 @@
 				</label>
 				<button
 					type="button"
-					class="inline-flex h-7 shrink-0 items-center rounded-md bg-zinc-900 px-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+					class="inline-flex h-8 shrink-0 items-center rounded-md bg-zinc-900 px-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
 					onclick={handleSave}
 				>
 					{m.common_save()}
