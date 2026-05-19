@@ -60,6 +60,16 @@ function escapeMarkdown(value: string): string {
 	return value.replaceAll('[', '\\[').replaceAll(']', '\\]');
 }
 
+function normalizeCodeBlockLanguageInfo(value: unknown): string {
+	if (typeof value !== 'string') {
+		return '';
+	}
+	return value
+		.trim()
+		.replace(/[\s`]+/g, '')
+		.slice(0, 32);
+}
+
 function getText(node: ExportNode | undefined): string {
 	if (!node) return '';
 	if (node.type === 'text') return node.text ?? '';
@@ -241,7 +251,7 @@ export function exportMarkdown(contentJson: JSONContent): string {
 				return;
 			}
 			case 'codeBlock':
-				lines.push('```');
+				lines.push(`\`\`\`${normalizeCodeBlockLanguageInfo(node.attrs?.language)}`);
 				lines.push(getText(node));
 				lines.push('```');
 				lines.push('');
