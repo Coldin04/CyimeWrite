@@ -53,9 +53,14 @@ func NewTokenService() (*TokenService, error) {
 		return nil, err
 	}
 
+	accessTokenLifetime := 15 * time.Minute
 	accessTokenLifetimeMinutes, err := strconv.Atoi(os.Getenv("ACCESS_TOKEN_LIFETIME_MINUTES"))
-	if err != nil || accessTokenLifetimeMinutes <= 0 {
-		accessTokenLifetimeMinutes = 15 // Default to 15 minutes
+	if err == nil && accessTokenLifetimeMinutes > 0 {
+		accessTokenLifetime = time.Duration(accessTokenLifetimeMinutes) * time.Minute
+	}
+	accessTokenLifetimeSeconds, err := strconv.Atoi(os.Getenv("ACCESS_TOKEN_LIFETIME_SECONDS"))
+	if err == nil && accessTokenLifetimeSeconds > 0 {
+		accessTokenLifetime = time.Duration(accessTokenLifetimeSeconds) * time.Second
 	}
 
 	refreshTokenLifetimeHours, err := strconv.Atoi(os.Getenv("REFRESH_TOKEN_LIFETIME_HOURS"))
@@ -65,7 +70,7 @@ func NewTokenService() (*TokenService, error) {
 
 	return &TokenService{
 		jwtSecret:              secret,
-		accessTokenLifetime:    time.Duration(accessTokenLifetimeMinutes) * time.Minute,
+		accessTokenLifetime:    accessTokenLifetime,
 		refreshTokenLifetime:   time.Duration(refreshTokenLifetimeHours) * time.Hour,
 		refreshTokenByteLength: 32,
 	}, nil

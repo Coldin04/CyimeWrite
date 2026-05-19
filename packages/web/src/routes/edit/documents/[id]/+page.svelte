@@ -92,6 +92,8 @@
 	let presenceHeartbeatTimer: number | null = null;
 	let isInitializingCollaboration = $state(false);
 	let lastCollaborationAttemptAt = $state(0);
+	let loadedDocumentId: string | null = null;
+	let loadingDocumentId: string | null = null;
 	let isYjsConnected = $state(false);
 	let isLeaveConfirmOpen = $state(false);
 	let pendingNavigationUrl = $state<string | null>(null);
@@ -838,14 +840,18 @@
 			return;
 		}
 
-		const token = authSignal.token;
-		if (!token) {
+		if (!authSignal.token) {
 			return;
 		}
 
 		hasAttemptedPresence = true;
 		const sessionId = ensurePresenceSessionId();
 		const heartbeat = async () => {
+			const token = authSignal.token;
+			if (!token) {
+				return;
+			}
+
 			try {
 				const response = await fetch(buildRealtimePresenceURL(nextDocumentId), {
 					method: 'PUT',
@@ -1364,7 +1370,11 @@
 	$effect(() => {
 		if (documentId && !authSignal.loading && !realtimeConfigSignal.loading) {
 			const targetDocumentId = documentId;
+			if (loadedDocumentId === targetDocumentId || loadingDocumentId === targetDocumentId) {
+				return;
+			}
 			const loadSequence = ++documentLoadSequence;
+			loadingDocumentId = targetDocumentId;
 			isLoading = true;
 			settleCollaborationSaveWaiters(false);
 			resetOnlineMembers();
@@ -1437,6 +1447,7 @@
 					isSaving = false;
 					updateCollaborationIndicator();
 					console.log('[Load] Title loaded:', title);
+					loadedDocumentId = targetDocumentId;
 					isLoading = false;
 
 					if (collaborationEnabled) {
@@ -1474,6 +1485,7 @@
 						return;
 					}
 					console.error('[Load] Failed to load document:', error);
+					loadedDocumentId = null;
 					collaboration = null;
 					collaborationDocumentId = null;
 					collaborationIndicator = null;
@@ -1487,6 +1499,9 @@
 					);
 					goto('/workspace');
 				} finally {
+					if (loadingDocumentId === targetDocumentId) {
+						loadingDocumentId = null;
+					}
 					if (isCurrentLoad() && isLoading) {
 						isLoading = false;
 					}

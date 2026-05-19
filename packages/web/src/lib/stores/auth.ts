@@ -20,6 +20,23 @@ type AuthState = {
 };
 
 let refreshTimerId: NodeJS.Timeout | null = null;
+let refreshRetryTimerId: NodeJS.Timeout | null = null;
+let refreshPromise: Promise<string | null> | null = null;
+
+const REFRESH_RETRY_DELAY_MS = 30_000;
+const MIN_REFRESH_RETRY_DELAY_MS = 1_000;
+const REFRESH_UNAUTHORIZED_RETRY_DELAY_MS = 500;
+const EXPIRY_SKEW_MS = 10_000;
+
+type RefreshError = Error & {
+	status?: number;
+};
+
+type NavigatorWithLocks = Navigator & {
+	locks?: {
+		request<T>(name: string, callback: () => Promise<T>): Promise<T>;
+	};
+};
 
 function parseJwt(token: string): { exp?: number } {
 	try {
@@ -30,6 +47,28 @@ function parseJwt(token: string): { exp?: number } {
 	} catch (e) {
 		return {};
 	}
+}
+
+function getTokenExpiresAt(token: string): number | null {
+	const { exp } = parseJwt(token);
+	return exp ? exp * 1000 : null;
+}
+
+function wait(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withCrossTabRefreshLock<T>(callback: () => Promise<T>): Promise<T> {
+	if (!browser) {
+		return callback();
+	}
+
+	const locks = (navigator as NavigatorWithLocks).locks;
+	if (!locks) {
+		return callback();
+	}
+
+	return locks.request('cyime-auth-refresh', callback);
 }
 
 function createAuthStore() {
@@ -49,16 +88,68 @@ function createAuthStore() {
 		return user;
 	}
 
-	async function refreshToken() {
-		console.log('Attempting to refresh token...');
-		try {
-			const response = await fetch(resolveApiUrl('/api/v1/auth/refresh'), {
+	function clearRefreshRetryTimer() {
+		if (refreshRetryTimerId) {
+			clearTimeout(refreshRetryTimerId);
+			refreshRetryTimerId = null;
+		}
+	}
+
+	function scheduleRefreshRetry(token: string) {
+		clearRefreshRetryTimer();
+
+		const expiresAt = getTokenExpiresAt(token);
+		if (!expiresAt) return;
+
+		const remainingLifetimeMs = expiresAt - Date.now();
+		if (remainingLifetimeMs <= 0) return;
+
+		const retryBeforeExpiryMs = remainingLifetimeMs - EXPIRY_SKEW_MS;
+		const retryIn =
+			retryBeforeExpiryMs > 0
+				? Math.min(REFRESH_RETRY_DELAY_MS, retryBeforeExpiryMs)
+				: Math.min(MIN_REFRESH_RETRY_DELAY_MS, remainingLifetimeMs);
+
+		refreshRetryTimerId = setTimeout(() => {
+			void refreshToken().catch((error) => {
+				console.error('Scheduled token refresh retry failed:', error);
+			});
+		}, retryIn);
+	}
+
+	async function requestNewAccessToken(): Promise<string> {
+		const response = await withCrossTabRefreshLock(() =>
+			fetch(resolveApiUrl('/api/v1/auth/refresh'), {
 				method: 'POST',
 				credentials: 'include'
-			});
-			if (!response.ok) throw new Error('Refresh failed');
+			})
+		);
 
-			const { accessToken: newAccessToken } = await response.json();
+		if (!response.ok) {
+			const error = new Error('Refresh failed') as RefreshError;
+			error.status = response.status;
+			throw error;
+		}
+
+		const { accessToken } = await response.json();
+		return accessToken;
+	}
+
+	async function performRefreshToken() {
+		console.log('Attempting to refresh token...');
+		try {
+			let newAccessToken: string;
+			try {
+				newAccessToken = await requestNewAccessToken();
+			} catch (error) {
+				const refreshError = error as RefreshError;
+				if (refreshError.status === 401) {
+					await wait(REFRESH_UNAUTHORIZED_RETRY_DELAY_MS);
+					newAccessToken = await requestNewAccessToken();
+				} else {
+					throw error;
+				}
+			}
 
 			update((state) => ({ ...state, token: newAccessToken }));
 			scheduleRefresh(newAccessToken);
@@ -66,20 +157,36 @@ function createAuthStore() {
 			return newAccessToken; // Return the new token on success
 		} catch (error) {
 			console.error('Could not refresh token:', error);
-			logout(); // If refresh fails, the session is over.
+			const refreshError = error as RefreshError;
+			if (refreshError.status === 401 || refreshError.status === 403) {
+				await logout();
+			} else {
+				const currentToken = get(auth).token;
+				if (currentToken) {
+					scheduleRefreshRetry(currentToken);
+				}
+			}
 			throw error; // Propagate the error
 		}
+	}
+
+	function refreshToken() {
+		if (!refreshPromise) {
+			refreshPromise = performRefreshToken().finally(() => {
+				refreshPromise = null;
+			});
+		}
+		return refreshPromise;
 	}
 
 	function scheduleRefresh(token: string) {
 		if (refreshTimerId) {
 			clearTimeout(refreshTimerId);
 		}
+		clearRefreshRetryTimer();
 
-		const { exp } = parseJwt(token);
-		if (!exp) return;
-
-		const expiresAt = exp * 1000;
+		const expiresAt = getTokenExpiresAt(token);
+		if (!expiresAt) return;
 		const now = Date.now();
 		const expiresIn = expiresAt - now;
 
@@ -99,19 +206,12 @@ function createAuthStore() {
 
 		// Try to restore session from the backend using the refresh token cookie.
 		try {
-			const response = await fetch(resolveApiUrl('/api/v1/auth/refresh'), {
-				method: 'POST',
-				credentials: 'include'
-			});
-
-			if (response.ok) {
-				const { accessToken } = await response.json();
-				const user = await _fetchUser(accessToken);
-				set({ token: accessToken, user, loading: false });
-				scheduleRefresh(accessToken);
-				console.log('Session restored successfully.');
-				return;
-			}
+			const accessToken = await requestNewAccessToken();
+			const user = await _fetchUser(accessToken);
+			set({ token: accessToken, user, loading: false });
+			scheduleRefresh(accessToken);
+			console.log('Session restored successfully.');
+			return;
 		} catch (error) {
 			// Session restoration failed, user is not logged in
 			console.log('No active session found.');
@@ -158,6 +258,7 @@ function createAuthStore() {
 			clearTimeout(refreshTimerId);
 			refreshTimerId = null;
 		}
+		clearRefreshRetryTimer();
 
 		try {
 			// Inform the backend to revoke the refresh token.
