@@ -7,6 +7,14 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	AdminRoleAdmin = "admin"
+
+	DocumentQuotaModeInherit   = "inherit"
+	DocumentQuotaModeCustom    = "custom"
+	DocumentQuotaModeUnlimited = "unlimited"
+)
+
 // BeforeCreate will set a UUID rather than relying on the database to generate it.
 func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 	if u.ID == uuid.Nil {
@@ -17,16 +25,20 @@ func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
 
 // User represents the core user model
 type User struct {
-	ID              uuid.UUID `gorm:"type:uuid;primary_key"`
-	Email           *string   `gorm:"unique"`
-	EmailVerified   bool      `gorm:"not null;default:false"`
-	EmailVerifiedAt *time.Time
-	DisplayName     *string
-	AvatarURL       *string
-	AvatarObjectKey *string
-	DocumentQuota   *int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                uuid.UUID `gorm:"type:uuid;primary_key"`
+	Email             *string   `gorm:"unique"`
+	EmailVerified     bool      `gorm:"not null;default:false"`
+	EmailVerifiedAt   *time.Time
+	DisplayName       *string
+	AvatarURL         *string
+	AvatarObjectKey   *string
+	AdminRole         *string `gorm:"type:varchar(50);index"`
+	AdminGrantedAt    *time.Time
+	AdminGrantedBy    *uuid.UUID `gorm:"type:uuid"`
+	DocumentQuotaMode string     `gorm:"type:varchar(20);not null;default:'inherit'"`
+	DocumentQuota     *int
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // BeforeCreate will set a UUID rather than relying on the database to generate it.

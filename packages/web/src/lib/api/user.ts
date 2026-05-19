@@ -5,6 +5,10 @@ export type UserProfile = {
 	displayName: string | null;
 	email: string | null;
 	avatarUrl: string | null;
+	adminAccess: {
+		hasAccess: boolean;
+		role: string | null;
+	};
 };
 
 export type UserOverview = {

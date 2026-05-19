@@ -62,6 +62,21 @@ func newImageBedConfigError(code ImageBedConfigErrorCode, field string, message 
 type ImageBedProviderField = imagebeds.ProviderField
 type ImageBedProvider = imagebeds.Provider
 
+func BuildAdminAccessDTO(currentUser *models.User) AdminAccessDTO {
+	role := trimStringPtr(currentUser.AdminRole)
+	if role == "" {
+		return AdminAccessDTO{
+			HasAccess: false,
+			Role:      nil,
+		}
+	}
+
+	return AdminAccessDTO{
+		HasAccess: true,
+		Role:      stringPtrOrNil(role),
+	}
+}
+
 func GetUserByID(userID uuid.UUID) (*models.User, error) {
 	var user models.User
 	if err := database.DB.First(&user, "id = ?", userID).Error; err != nil {
@@ -92,6 +107,15 @@ func GetEffectiveDocumentQuotaWithDB(db *gorm.DB, userID uuid.UUID) (*int, error
 	if err != nil {
 		return nil, err
 	}
+
+	switch strings.TrimSpace(currentUser.DocumentQuotaMode) {
+	case models.DocumentQuotaModeUnlimited:
+		return nil, nil
+	case models.DocumentQuotaModeCustom:
+		return currentUser.DocumentQuota, nil
+	}
+
+	// 兼容旧数据：历史版本只有 document_quota 字段，没有 quota_mode。
 	if currentUser.DocumentQuota != nil {
 		return currentUser.DocumentQuota, nil
 	}

@@ -7,9 +7,13 @@ import (
 	"time"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/auth"
+	"g.co1d.in/Coldin04/Cyime/server/internal/database"
+	"g.co1d.in/Coldin04/Cyime/server/internal/models"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 const testJWTSecret = "test-secret-please-rotate-aaaaaaaaaaaaaaaa"
@@ -46,7 +50,24 @@ func newProtectedTestApp() *fiber.App {
 	app.Get("/api/v1/media/assets/:id/thumbnail", ProtectedMediaContent(), func(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusNoContent)
 	})
+	app.Get("/api/v1/admin/users", Protected(), RequireAdmin(), func(c *fiber.Ctx) error {
+		return c.SendStatus(fiber.StatusNoContent)
+	})
 	return app
+}
+
+func setupMiddlewareTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := "file:" + uuid.NewString() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.User{}); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	database.DB = db
+	return db
 }
 
 func TestProtectedRejectsMediaCookieOnGenericMediaRoutes(t *testing.T) {
@@ -122,5 +143,57 @@ func TestProtectedStillAcceptsAuthorizationBearer(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("expected bearer token to be accepted, got %d", resp.StatusCode)
+	}
+}
+
+func TestRequireAdminRejectsNonAdminUser(t *testing.T) {
+	t.Setenv("JWT_SECRET_KEY", testJWTSecret)
+	db := setupMiddlewareTestDB(t)
+	userID := uuid.New()
+	email := "member@example.com"
+	if err := db.Create(&models.User{
+		ID:    userID,
+		Email: &email,
+	}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	app := newProtectedTestApp()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+signTestJWT(t, userID))
+
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestRequireAdminAcceptsAdminUser(t *testing.T) {
+	t.Setenv("JWT_SECRET_KEY", testJWTSecret)
+	db := setupMiddlewareTestDB(t)
+	userID := uuid.New()
+	email := "admin@example.com"
+	role := models.AdminRoleAdmin
+	if err := db.Create(&models.User{
+		ID:        userID,
+		Email:     &email,
+		AdminRole: &role,
+	}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	app := newProtectedTestApp()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+signTestJWT(t, userID))
+
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
 	}
 }

@@ -17,6 +17,7 @@
 	import CaretRight from '~icons/ph/caret-right';
 	import ClockCounterClockwise from '~icons/ph/clock-counter-clockwise';
 	import SignOut from '~icons/ph/sign-out';
+	import ShieldCheck from '~icons/ph/shield-check';
 	import Trash from '~icons/ph/trash';
 	import X from '~icons/ph/x';
 	import UserAvatar from '$lib/components/common/UserAvatar.svelte';
@@ -280,7 +281,18 @@
 						{unreadCount > 99 ? '99+' : unreadCount}
 					</span>
 				{/if}
-			</button>
+				</button>
+
+			{#if $auth.user?.adminAccess?.hasAccess}
+				<a
+					href="/admin"
+					onclick={closeUserMenu}
+					class="flex items-center gap-2 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+				>
+					<ShieldCheck class="h-4 w-4" />
+					<span>{m.admin_menu_entry()}</span>
+				</a>
+			{/if}
 
 			{#if showTrash}
 				<a

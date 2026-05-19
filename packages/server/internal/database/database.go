@@ -175,6 +175,10 @@ func Connect() {
 		log.Fatalf("Failed to auto-migrate database: %v", err)
 	}
 
+	if err := backfillLegacyUserQuotaModes(DB); err != nil {
+		log.Fatalf("Failed to backfill user quota modes: %v", err)
+	}
+
 	if err := encryptPlaintextAuthProviderSecrets(); err != nil {
 		log.Fatalf("Failed to encrypt auth provider secrets: %v", err)
 	}
@@ -222,6 +226,12 @@ func encryptPlaintextAuthProviderSecrets() error {
 	}
 
 	return nil
+}
+
+func backfillLegacyUserQuotaModes(db *gorm.DB) error {
+	return db.Model(&models.User{}).
+		Where("document_quota IS NOT NULL AND (document_quota_mode = '' OR document_quota_mode = ?)", models.DocumentQuotaModeInherit).
+		Update("document_quota_mode", models.DocumentQuotaModeCustom).Error
 }
 
 type legacyRefreshTokenSessionBackfill struct {
