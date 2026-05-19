@@ -380,15 +380,15 @@
 		manualCopyTitle = '';
 	}
 
-async function retryManualCopy() {
-	try {
-		await navigator.clipboard.writeText(manualCopyContent);
-		toast.success(m.editor_export_manual_copy_success());
-		closeManualCopyDialog();
+	async function retryManualCopy() {
+		try {
+			await navigator.clipboard.writeText(manualCopyContent);
+			toast.success(m.editor_export_manual_copy_success());
+			closeManualCopyDialog();
 		} catch {
 			toast.error(m.editor_export_manual_copy_failed());
+		}
 	}
-}
 
 	async function prepareExportContentWithPublicImages(targetId: string): Promise<JSONContent> {
 		if (!documentId) {
