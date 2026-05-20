@@ -8,6 +8,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import katex from 'katex';
+import { common, createLowlight } from 'lowlight';
 import { CyImage } from '$lib/components/editor/CyImage';
 
 type ExportNode = {
@@ -17,6 +18,23 @@ type ExportNode = {
 	content?: ExportNode[];
 	marks?: Array<{ type?: string; attrs?: Record<string, unknown> }>;
 };
+
+type LowlightNode = {
+	type?: string;
+	value?: string;
+	properties?: {
+		className?: string[];
+	};
+	children?: LowlightNode[];
+};
+
+const lowlight = createLowlight(common);
+
+lowlight.registerAlias({
+	bash: ['sh', 'shell'],
+	c: ['h'],
+	cpp: ['cc', 'cxx', 'hpp']
+});
 
 function exportExtensions() {
 	return [
@@ -56,6 +74,40 @@ function escapeHtml(value: string): string {
 		.replaceAll("'", '&#39;');
 }
 
+function renderLowlightNodes(nodes: LowlightNode[] = []): string {
+	return nodes
+		.map((node) => {
+			if (node.type === 'text') {
+				return escapeHtml(node.value ?? '');
+			}
+
+			const children = renderLowlightNodes(node.children ?? []);
+			const className = node.properties?.className?.filter(Boolean).join(' ') ?? '';
+			if (!className) {
+				return children;
+			}
+
+			return `<span class="${escapeHtml(className)}">${children}</span>`;
+		})
+		.join('');
+}
+
+function highlightCodeForExport(source: string, language: string): string {
+	if (isMermaidLanguage(language)) {
+		return escapeHtml(source);
+	}
+
+	try {
+		const languages = lowlight.listLanguages();
+		const result = language && languages.includes(language)
+			? lowlight.highlight(language, source)
+			: lowlight.highlightAuto(source);
+		return renderLowlightNodes((result.children ?? []) as LowlightNode[]);
+	} catch {
+		return escapeHtml(source);
+	}
+}
+
 function escapeMarkdown(value: string): string {
 	return value.replaceAll('[', '\\[').replaceAll(']', '\\]');
 }
@@ -68,6 +120,84 @@ function normalizeCodeBlockLanguageInfo(value: unknown): string {
 		.trim()
 		.replace(/[\s`]+/g, '')
 		.slice(0, 32);
+}
+
+function isMermaidLanguage(value: string | null | undefined): boolean {
+	return value?.trim().toLowerCase() === 'mermaid';
+}
+
+function isDarkMode(): boolean {
+	if (typeof document !== 'undefined' && document.documentElement.classList.contains('dark')) {
+		return true;
+	}
+	return (
+		typeof window !== 'undefined' &&
+		window.matchMedia?.('(prefers-color-scheme: dark)').matches === true
+	);
+}
+
+function hashString(value: string): string {
+	let hash = 5381;
+	for (let index = 0; index < value.length; index += 1) {
+		hash = (hash * 33) ^ value.charCodeAt(index);
+	}
+	return (hash >>> 0).toString(36);
+}
+
+function getHexColorLuminance(hexColor: string): number | null {
+	const normalized = hexColor.trim().replace(/^#/, '');
+	const expanded =
+		normalized.length === 3
+			? normalized
+					.split('')
+					.map((value) => value + value)
+					.join('')
+			: normalized;
+
+	if (!/^[0-9a-f]{6}$/i.test(expanded)) {
+		return null;
+	}
+
+	const channels = [0, 2, 4].map((offset) => {
+		const channel = Number.parseInt(expanded.slice(offset, offset + 2), 16) / 255;
+		return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+	});
+
+	return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function chooseTextColorForFill(fillColor: string): string | null {
+	const luminance = getHexColorLuminance(fillColor);
+	if (luminance === null) {
+		return null;
+	}
+
+	return luminance > 0.45 ? '#111827' : '#ffffff';
+}
+
+function applyReadableMermaidStyleTextColors(source: string): string {
+	return source
+		.split('\n')
+		.map((line) => {
+			const styleMatch = line.match(/^(\s*style\s+\S+\s+)(.+)$/i);
+			if (!styleMatch) {
+				return line;
+			}
+
+			const [, prefix, declarations] = styleMatch;
+			if (/(^|,)color\s*:/i.test(declarations)) {
+				return line;
+			}
+
+			const fillMatch = declarations.match(/(?:^|,)fill\s*:\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?)(?=,|$)/i);
+			const textColor = fillMatch ? chooseTextColorForFill(fillMatch[1]) : null;
+			if (!textColor) {
+				return line;
+			}
+
+			return `${prefix}${declarations},color:${textColor}`;
+		})
+		.join('\n');
 }
 
 function getText(node: ExportNode | undefined): string {
@@ -109,13 +239,124 @@ function renderKatexInHtml(html: string): string {
 	return doc.body.innerHTML;
 }
 
-export function exportHtmlDocument(options: {
+function enhanceExportHtml(html: string): string {
+	if (typeof DOMParser === 'undefined') return html;
+
+	const doc = new DOMParser().parseFromString(html, 'text/html');
+
+	for (const code of Array.from(doc.querySelectorAll('pre > code'))) {
+		const pre = code.parentElement;
+		if (!pre) continue;
+
+		const language = Array.from(code.classList)
+			.find((className) => className.startsWith('language-'))
+			?.slice('language-'.length);
+		if (language) {
+			pre.setAttribute('data-language', language);
+		}
+		code.innerHTML = highlightCodeForExport(code.textContent ?? '', language ?? '');
+	}
+
+	for (const table of Array.from(doc.querySelectorAll('table'))) {
+		const parent = table.parentElement;
+		if (parent?.classList.contains('tableWrapper')) {
+			continue;
+		}
+
+		const wrapper = doc.createElement('div');
+		wrapper.className = 'tableWrapper';
+		table.replaceWith(wrapper);
+		wrapper.append(table);
+	}
+
+	return doc.body.innerHTML;
+}
+
+async function renderMermaidInHtml(html: string, colorMode: 'light' | 'dark'): Promise<string> {
+	if (typeof DOMParser === 'undefined') return html;
+
+	const doc = new DOMParser().parseFromString(html, 'text/html');
+	const blocks = Array.from(doc.querySelectorAll('pre > code')).filter((node) => {
+		const language = Array.from(node.classList)
+			.find((className) => className.startsWith('language-'))
+			?.slice('language-'.length);
+		return isMermaidLanguage(language);
+	});
+
+	if (blocks.length === 0) {
+		return doc.body.innerHTML;
+	}
+
+	const mermaid = (await import('mermaid')).default;
+	const darkMode = colorMode === 'dark';
+	mermaid.initialize({
+		startOnLoad: false,
+		securityLevel: 'strict',
+		theme: 'base',
+		themeVariables: {
+			background: darkMode ? '#18181b' : '#ffffff',
+			primaryColor: darkMode ? '#27272a' : '#eff6ff',
+			primaryBorderColor: darkMode ? '#60a5fa' : '#2563eb',
+			primaryTextColor: darkMode ? '#ffffff' : '#111827',
+			secondaryColor: darkMode ? '#3f3f46' : '#fff7ed',
+			secondaryBorderColor: darkMode ? '#fb923c' : '#f97316',
+			secondaryTextColor: darkMode ? '#ffffff' : '#111827',
+			tertiaryColor: darkMode ? '#27272a' : '#f8fafc',
+			tertiaryBorderColor: darkMode ? '#38bdf8' : '#0284c7',
+			tertiaryTextColor: darkMode ? '#ffffff' : '#111827',
+			textColor: darkMode ? '#ffffff' : '#111827',
+			nodeTextColor: darkMode ? '#ffffff' : '#111827',
+			lineColor: darkMode ? '#e4e4e7' : '#374151',
+			edgeLabelBackground: darkMode ? '#18181b' : '#ffffff',
+			clusterBkg: darkMode ? '#27272a' : '#f8fafc',
+			clusterBorder: darkMode ? '#71717a' : '#cbd5e1'
+		}
+	});
+
+	for (const code of blocks) {
+		const pre = code.parentElement;
+		if (!pre) continue;
+
+		const source = code.textContent ?? '';
+		const figure = doc.createElement('figure');
+		figure.className = 'cy-export-mermaid';
+
+		const chart = doc.createElement('div');
+		chart.className = 'cy-export-mermaid__chart';
+		figure.append(chart);
+
+		try {
+			const result = await mermaid.render(
+				`cy-export-mermaid-${hashString(source)}-${Math.random().toString(36).slice(2)}`,
+				applyReadableMermaidStyleTextColors(source)
+			);
+			chart.innerHTML = result.svg;
+		} catch (error) {
+			chart.classList.add('cy-export-mermaid__chart--error');
+			chart.textContent = error instanceof Error ? error.message : 'Mermaid render failed';
+		}
+
+		const details = doc.createElement('details');
+		details.className = 'cy-export-code-details';
+		const summary = doc.createElement('summary');
+		summary.textContent = 'Mermaid source';
+		details.append(summary, pre.cloneNode(true));
+		figure.append(details);
+		pre.replaceWith(figure);
+	}
+
+	return doc.body.innerHTML;
+}
+
+export async function exportHtmlDocument(options: {
 	title: string;
 	contentJson: JSONContent;
 	includeKatexCssLink?: boolean;
-}): string {
-	const { title, contentJson, includeKatexCssLink = true } = options;
-	const renderedBody = renderKatexInHtml(generateHTML(contentJson, exportExtensions()));
+	colorMode?: 'light' | 'dark';
+}): Promise<string> {
+	const { title, contentJson, includeKatexCssLink = true, colorMode = isDarkMode() ? 'dark' : 'light' } = options;
+	const generatedBody = enhanceExportHtml(renderKatexInHtml(generateHTML(contentJson, exportExtensions())));
+	const renderedBody = await renderMermaidInHtml(generatedBody, colorMode);
 	const safeTitle = title.trim() || 'Cyime Export';
 	const katexLink = includeKatexCssLink
 		? '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.44/dist/katex.min.css" />'
@@ -129,15 +370,234 @@ export function exportHtmlDocument(options: {
   <title>${escapeHtml(safeTitle)}</title>
   ${katexLink}
   <style>
-    :root { color-scheme: light; }
-    body { margin: 0; padding: 48px 20px; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #18181b; background: #ffffff; }
+    :root {
+      color-scheme: light dark;
+      --page-bg: #ffffff;
+      --text: #18181b;
+      --muted: #71717a;
+      --border: #d4d4d8;
+      --surface: #fafafa;
+      --surface-soft: #f4f4f5;
+      --code-bg: #f8fafc;
+      --code-fg: #1f2937;
+      --code-border: #cbd5e1;
+      --code-label: #64748b;
+      --code-comment: #64748b;
+      --code-string: #15803d;
+      --code-number: #b45309;
+      --code-keyword: #1d4ed8;
+      --code-type: #0e7490;
+      --code-title: #a16207;
+      --code-variable: #7e22ce;
+      --code-operator: #374151;
+      --accent: #0284c7;
+      --table-head: #f4f4f5;
+      --table-stripe: #fafafa;
+      --danger: #dc2626;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page-bg: #09090b;
+        --text: #f4f4f5;
+        --muted: #a1a1aa;
+        --border: #3f3f46;
+        --surface: #18181b;
+        --surface-soft: #27272a;
+        --code-bg: #18181b;
+        --code-fg: #e5e7eb;
+        --code-border: #52525b;
+        --code-label: #a1a1aa;
+        --code-comment: #a1a1aa;
+        --code-string: #86efac;
+        --code-number: #fdba74;
+        --code-keyword: #93c5fd;
+        --code-type: #67e8f9;
+        --code-title: #fde68a;
+        --code-variable: #c4b5fd;
+        --code-operator: #e5e7eb;
+        --accent: #38bdf8;
+        --table-head: #27272a;
+        --table-stripe: #18181b;
+        --danger: #f87171;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 20px;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--page-bg);
+      line-height: 1.72;
+    }
     main { max-width: 920px; margin: 0 auto; }
-    img { max-width: 100%; height: auto; }
-    pre { overflow-x: auto; padding: 16px; border-radius: 12px; background: #18181b; color: #fafafa; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-    blockquote { margin: 20px 0; padding: 12px 16px; border-left: 3px solid #14b8a6; background: #f4f4f5; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #a1a1aa; padding: 8px 10px; }
+    h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.55em 0 0.65em; }
+    p { margin: 0.8em 0; }
+    a { color: var(--accent); text-decoration-thickness: 0.08em; text-underline-offset: 0.18em; }
+    img { display: block; max-width: 100%; height: auto; margin: 1rem auto; border-radius: 8px; }
+    code {
+      border-radius: 0.35rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.92em;
+    }
+    :not(pre) > code {
+      background: var(--surface-soft);
+      color: var(--text);
+      padding: 0.12rem 0.28rem;
+    }
+    pre {
+      position: relative;
+      overflow-x: auto;
+      margin: 1rem 0;
+      padding: 0.95rem 1rem;
+      border: 0;
+      border-left: 3px solid var(--code-border);
+      border-radius: 6px;
+      background: var(--code-bg);
+      color: var(--code-fg);
+      line-height: 1.65;
+      page-break-inside: avoid;
+    }
+    pre[data-language] { padding-top: 1.9rem; }
+    pre[data-language]::before {
+      content: attr(data-language);
+      position: absolute;
+      top: 0.45rem;
+      right: 0.65rem;
+      color: var(--code-label);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    pre code { background: transparent; color: inherit; padding: 0; }
+    .hljs-comment,
+    .hljs-quote { color: var(--code-comment); font-style: italic; }
+    .hljs-string,
+    .hljs-regexp,
+    .hljs-symbol { color: var(--code-string); }
+    .hljs-number,
+    .hljs-literal { color: var(--code-number); }
+    .hljs-keyword,
+    .hljs-meta { color: var(--code-keyword); font-weight: 650; }
+    .hljs-type,
+    .hljs-built_in { color: var(--code-type); }
+    .hljs-title,
+    .hljs-title.function_,
+    .hljs-name { color: var(--code-title); }
+    .hljs-variable,
+    .hljs-params,
+    .hljs-attr { color: var(--code-variable); }
+    .hljs-operator,
+    .hljs-punctuation { color: var(--code-operator); }
+    blockquote {
+      margin: 1.25rem 0;
+      padding: 0.85rem 1rem;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      background: var(--surface-soft);
+      color: var(--text);
+    }
+    .tableWrapper { overflow-x: auto; margin: 0.9rem 0; }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.88rem;
+      line-height: 1.38;
+    }
+    th, td {
+      min-width: 4.75rem;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 0.42rem 0.55rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th:last-child, td:last-child { border-right: 0; }
+    tr:last-child > th, tr:last-child > td { border-bottom: 0; }
+    th { background: var(--table-head); font-weight: 650; }
+    tbody tr:nth-child(even) td { background: var(--table-stripe); }
+    .cy-export-mermaid {
+      margin: 1.25rem 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      page-break-inside: avoid;
+    }
+    .cy-export-mermaid__chart {
+      overflow-x: auto;
+      padding: 1rem;
+      text-align: center;
+    }
+    .cy-export-mermaid__chart svg {
+      display: inline-block;
+      max-width: 100%;
+      height: auto;
+      vertical-align: middle;
+    }
+    .cy-export-mermaid__chart--error {
+      color: var(--danger);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      text-align: left;
+      white-space: pre-wrap;
+    }
+    .cy-export-code-details {
+      border-top: 1px solid var(--border);
+      background: var(--page-bg);
+    }
+    .cy-export-code-details summary {
+      cursor: pointer;
+      padding: 0.45rem 0.75rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 650;
+    }
+    .cy-export-code-details pre {
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+    }
+    @media print {
+      :root {
+        color-scheme: light;
+        --page-bg: #ffffff;
+        --text: #18181b;
+        --muted: #52525b;
+        --border: #d4d4d8;
+        --surface: #ffffff;
+        --surface-soft: #f4f4f5;
+        --code-bg: #f8fafc;
+        --code-fg: #111827;
+        --code-border: #cbd5e1;
+        --code-label: #64748b;
+        --code-comment: #64748b;
+        --code-string: #166534;
+        --code-number: #9a3412;
+        --code-keyword: #1d4ed8;
+        --code-type: #0e7490;
+        --code-title: #854d0e;
+        --code-variable: #6b21a8;
+        --code-operator: #374151;
+        --accent: #0369a1;
+        --table-head: #f1f5f9;
+        --table-stripe: #fafafa;
+      }
+      body { padding: 0; background: #ffffff; }
+      main { max-width: none; }
+      pre, table, blockquote, .cy-export-mermaid { break-inside: avoid; }
+      .tableWrapper { margin: 0.7rem 0; }
+      table { font-size: 0.82rem; line-height: 1.28; }
+      th, td { min-width: 4rem; padding: 0.32rem 0.42rem; }
+      .cy-export-code-details:not([open]) { display: none; }
+      a { color: #0369a1; }
+    }
   </style>
 </head>
 <body>

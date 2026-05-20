@@ -220,7 +220,7 @@ export async function runExportAction(action: ExportAction, options: {
 	}
 
 	if (action === 'download-html') {
-		const html = exportHtmlDocument({
+		const html = await exportHtmlDocument({
 			title: options.title.trim() || 'Cyime Export',
 			contentJson: options.contentJson
 		});
