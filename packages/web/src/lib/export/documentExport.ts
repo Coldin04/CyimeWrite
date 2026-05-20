@@ -98,10 +98,15 @@ function highlightCodeForExport(source: string, language: string): string {
 	}
 
 	try {
-		const languages = lowlight.listLanguages();
-		const result = language && languages.includes(language)
-			? lowlight.highlight(language, source)
-			: lowlight.highlightAuto(source);
+		if (language) {
+			try {
+				const result = lowlight.highlight(language, source);
+				return renderLowlightNodes((result.children ?? []) as LowlightNode[]);
+			} catch {
+				// fall back to auto-detection below
+			}
+		}
+		const result = lowlight.highlightAuto(source);
 		return renderLowlightNodes((result.children ?? []) as LowlightNode[]);
 	} catch {
 		return escapeHtml(source);
@@ -355,6 +360,7 @@ export async function exportHtmlDocument(options: {
 	colorMode?: 'light' | 'dark';
 }): Promise<string> {
 	const { title, contentJson, includeKatexCssLink = true, colorMode = isDarkMode() ? 'dark' : 'light' } = options;
+	const darkMode = colorMode === 'dark';
 	const generatedBody = enhanceExportHtml(renderKatexInHtml(generateHTML(contentJson, exportExtensions())));
 	const renderedBody = await renderMermaidInHtml(generatedBody, colorMode);
 	const safeTitle = title.trim() || 'Cyime Export';
@@ -371,55 +377,29 @@ export async function exportHtmlDocument(options: {
   ${katexLink}
   <style>
     :root {
-      color-scheme: light dark;
-      --page-bg: #ffffff;
-      --text: #18181b;
-      --muted: #71717a;
-      --border: #d4d4d8;
-      --surface: #fafafa;
-      --surface-soft: #f4f4f5;
-      --code-bg: #f8fafc;
-      --code-fg: #1f2937;
-      --code-border: #cbd5e1;
-      --code-label: #64748b;
-      --code-comment: #64748b;
-      --code-string: #15803d;
-      --code-number: #b45309;
-      --code-keyword: #1d4ed8;
-      --code-type: #0e7490;
-      --code-title: #a16207;
-      --code-variable: #7e22ce;
-      --code-operator: #374151;
-      --accent: #0284c7;
-      --table-head: #f4f4f5;
-      --table-stripe: #fafafa;
-      --danger: #dc2626;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --page-bg: #09090b;
-        --text: #f4f4f5;
-        --muted: #a1a1aa;
-        --border: #3f3f46;
-        --surface: #18181b;
-        --surface-soft: #27272a;
-        --code-bg: #18181b;
-        --code-fg: #e5e7eb;
-        --code-border: #52525b;
-        --code-label: #a1a1aa;
-        --code-comment: #a1a1aa;
-        --code-string: #86efac;
-        --code-number: #fdba74;
-        --code-keyword: #93c5fd;
-        --code-type: #67e8f9;
-        --code-title: #fde68a;
-        --code-variable: #c4b5fd;
-        --code-operator: #e5e7eb;
-        --accent: #38bdf8;
-        --table-head: #27272a;
-        --table-stripe: #18181b;
-        --danger: #f87171;
-      }
+      color-scheme: ${darkMode ? 'dark' : 'light'};
+      --page-bg: ${darkMode ? '#09090b' : '#ffffff'};
+      --text: ${darkMode ? '#f4f4f5' : '#18181b'};
+      --muted: ${darkMode ? '#a1a1aa' : '#71717a'};
+      --border: ${darkMode ? '#3f3f46' : '#d4d4d8'};
+      --surface: ${darkMode ? '#18181b' : '#fafafa'};
+      --surface-soft: ${darkMode ? '#27272a' : '#f4f4f5'};
+      --code-bg: ${darkMode ? '#18181b' : '#f8fafc'};
+      --code-fg: ${darkMode ? '#e5e7eb' : '#1f2937'};
+      --code-border: ${darkMode ? '#52525b' : '#cbd5e1'};
+      --code-label: ${darkMode ? '#a1a1aa' : '#64748b'};
+      --code-comment: ${darkMode ? '#a1a1aa' : '#64748b'};
+      --code-string: ${darkMode ? '#86efac' : '#15803d'};
+      --code-number: ${darkMode ? '#fdba74' : '#b45309'};
+      --code-keyword: ${darkMode ? '#93c5fd' : '#1d4ed8'};
+      --code-type: ${darkMode ? '#67e8f9' : '#0e7490'};
+      --code-title: ${darkMode ? '#fde68a' : '#a16207'};
+      --code-variable: ${darkMode ? '#c4b5fd' : '#7e22ce'};
+      --code-operator: ${darkMode ? '#e5e7eb' : '#374151'};
+      --accent: ${darkMode ? '#38bdf8' : '#0284c7'};
+      --table-head: ${darkMode ? '#27272a' : '#f4f4f5'};
+      --table-stripe: ${darkMode ? '#18181b' : '#fafafa'};
+      --danger: ${darkMode ? '#f87171' : '#dc2626'};
     }
     * { box-sizing: border-box; }
     body {
