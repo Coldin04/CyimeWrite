@@ -3,9 +3,14 @@
 	import { fade } from 'svelte/transition';
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import * as m from '$paraglide/messages';
-	import Code from '~icons/ph/code';
 	import CaretDown from '~icons/ph/caret-down';
 	import Check from '~icons/ph/check';
+	import BracketsCurly from '~icons/ph/brackets-curly';
+	import FileC from '~icons/ph/file-c';
+	import FileCpp from '~icons/ph/file-cpp';
+	import Graph from '~icons/ph/graph';
+	import Sparkle from '~icons/ph/sparkle';
+	import Terminal from '~icons/ph/terminal';
 	import { codeBlockLanguageOptions, normalizeCodeBlockLanguage } from '$lib/components/editor/codeHighlight';
 
 	interface Props {
@@ -85,6 +90,22 @@
 	}
 </script>
 
+{#snippet LanguageIcon(value: string, className = 'h-4 w-4 shrink-0')}
+	{#if value === ''}
+		<Sparkle class={className} />
+	{:else if value === 'bash' || value === 'sh'}
+		<Terminal class={className} />
+	{:else if value === 'mermaid'}
+		<Graph class={className} />
+	{:else if value === 'c'}
+		<FileC class={className} />
+	{:else if value === 'cpp'}
+		<FileCpp class={className} />
+	{:else}
+		<BracketsCurly class={className} />
+	{/if}
+{/snippet}
+
 <div
 	bind:this={menuElement}
 	class="shrink-0"
@@ -103,8 +124,8 @@
 		class="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-zinc-900 bg-zinc-900 px-2 text-xs text-white transition-colors hover:bg-zinc-800 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
 		onclick={toggleMenu}
 	>
-		<Code class="h-4 w-4 shrink-0" />
-		<span class="inline-flex min-w-8 items-center justify-center text-[11px] font-semibold uppercase">
+		{@render LanguageIcon(currentValue)}
+		<span class="inline-flex min-w-0 max-w-20 items-center justify-center truncate text-[11px] font-semibold">
 			{currentLabel}
 		</span>
 		<CaretDown class={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -132,8 +153,8 @@
 					}`}
 					onclick={() => handleSelect(option.value)}
 				>
-					<span class="inline-flex h-4 min-w-8 items-center justify-center text-[11px] font-semibold uppercase">
-						{option.value || 'Auto'}
+					<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+						{@render LanguageIcon(option.value)}
 					</span>
 					<span>{option.label}</span>
 					{#if currentValue === option.value}

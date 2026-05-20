@@ -212,6 +212,126 @@
 	padding: 0;
 }
 
+.tiptap pre.cw-mermaid-source--hidden {
+	display: none;
+}
+
+.tiptap .cw-mermaid-preview {
+	background: var(--editor-surface-muted);
+	border: 1px solid var(--editor-border);
+	border-radius: 0.375rem;
+	box-shadow: 0 10px 24px rgb(24 24 27 / 0.04);
+	margin-top: 0.65rem;
+	overflow: hidden;
+}
+
+.tiptap .cw-mermaid-preview__header {
+	align-items: center;
+	background: var(--editor-surface-soft);
+	border-bottom: 1px solid var(--editor-border);
+	color: var(--editor-muted);
+	display: flex;
+	font-size: 0.72rem;
+	font-weight: 600;
+	height: 2rem;
+	justify-content: space-between;
+	letter-spacing: 0;
+	padding: 0 0.85rem;
+	text-transform: uppercase;
+}
+
+.tiptap .cw-mermaid-preview__title {
+	min-width: 0;
+}
+
+.tiptap .cw-mermaid-preview__actions {
+	align-items: center;
+	display: flex;
+	gap: 0.25rem;
+}
+
+.tiptap .cw-mermaid-preview__toggle,
+.tiptap .cw-mermaid-preview__delete {
+	border-radius: 0.25rem;
+	color: var(--editor-text);
+	font-size: 0.75rem;
+	font-weight: 500;
+	line-height: 1;
+	padding: 0.35rem 0.5rem;
+	text-transform: none;
+	transition:
+		background-color 120ms ease,
+		color 120ms ease;
+}
+
+.tiptap .cw-mermaid-preview__toggle:hover,
+.tiptap .cw-mermaid-preview__toggle:focus-visible {
+	background: var(--editor-surface-muted);
+	outline: none;
+}
+
+.tiptap .cw-mermaid-preview__delete {
+	color: rgb(220 38 38);
+}
+
+.tiptap .cw-mermaid-preview__delete:hover,
+.tiptap .cw-mermaid-preview__delete:focus-visible {
+	background: rgb(254 226 226);
+	color: rgb(185 28 28);
+	outline: none;
+}
+
+.dark .tiptap .cw-mermaid-preview__delete:hover,
+.dark .tiptap .cw-mermaid-preview__delete:focus-visible {
+	background: rgb(127 29 29 / 0.35);
+	color: rgb(248 113 113);
+}
+
+.tiptap .cw-mermaid-preview__canvas {
+	background: var(--editor-surface-muted);
+	color: var(--editor-text);
+	cursor: pointer;
+	min-height: 4.5rem;
+	overflow-x: auto;
+	padding: 1rem;
+	text-align: center;
+	transition:
+		background-color 120ms ease,
+		box-shadow 120ms ease;
+}
+
+.tiptap .cw-mermaid-preview__canvas:hover,
+.tiptap .cw-mermaid-preview__canvas:focus-visible {
+	box-shadow: inset 0 0 0 2px rgb(14 165 233 / 0.35);
+	outline: none;
+}
+
+.tiptap .cw-mermaid-preview__canvas svg {
+	display: inline-block;
+	height: auto;
+	max-width: 100%;
+	vertical-align: middle;
+}
+
+.tiptap .cw-mermaid-preview__canvas--error {
+	color: rgb(185 28 28);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
+	font-size: 0.8rem;
+	line-height: 1.6;
+	text-align: left;
+	white-space: pre-wrap;
+}
+
+@media (prefers-color-scheme: dark) {
+	.tiptap .cw-mermaid-preview__canvas--error {
+		color: rgb(248 113 113);
+	}
+}
+
+.dark .tiptap .cw-mermaid-preview__canvas--error {
+	color: rgb(248 113 113);
+}
+
 .tiptap .hljs-comment,
 .tiptap .hljs-quote {
 	color: var(--editor-code-comment);
