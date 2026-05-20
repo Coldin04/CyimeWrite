@@ -1,7 +1,7 @@
 import { Extension, findChildren } from '@tiptap/core';
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
-import type { EditorState } from '@tiptap/pm/state';
+import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 
 const mermaidPreviewPluginKey = new PluginKey('mermaidPreview');
@@ -10,6 +10,9 @@ type MermaidPreviewPluginState = {
 	decorations: DecorationSet;
 	hiddenByKey: Record<string, boolean>;
 };
+
+let mermaidModulePromise: Promise<typeof import('mermaid').default> | null = null;
+let initializedMermaidTheme: 'light' | 'dark' | null = null;
 
 function isMermaidLanguage(value: unknown): boolean {
 	return typeof value === 'string' && value.trim().toLowerCase() === 'mermaid';
@@ -89,6 +92,34 @@ function applyReadableStyleTextColors(source: string): string {
 		.join('\n');
 }
 
+function getMermaidModule() {
+	if (!mermaidModulePromise) {
+		mermaidModulePromise = import('mermaid').then((module) => module.default);
+	}
+	return mermaidModulePromise;
+}
+
+function createThemeVariables(darkMode: boolean) {
+	return {
+		background: darkMode ? '#18181b' : '#ffffff',
+		primaryColor: darkMode ? '#27272a' : '#eff6ff',
+		primaryBorderColor: darkMode ? '#60a5fa' : '#2563eb',
+		primaryTextColor: darkMode ? '#ffffff' : '#111827',
+		secondaryColor: darkMode ? '#3f3f46' : '#fff7ed',
+		secondaryBorderColor: darkMode ? '#fb923c' : '#f97316',
+		secondaryTextColor: darkMode ? '#ffffff' : '#111827',
+		tertiaryColor: darkMode ? '#27272a' : '#f8fafc',
+		tertiaryBorderColor: darkMode ? '#38bdf8' : '#0284c7',
+		tertiaryTextColor: darkMode ? '#ffffff' : '#111827',
+		textColor: darkMode ? '#ffffff' : '#111827',
+		nodeTextColor: darkMode ? '#ffffff' : '#111827',
+		lineColor: darkMode ? '#e4e4e7' : '#374151',
+		edgeLabelBackground: darkMode ? '#18181b' : '#ffffff',
+		clusterBkg: darkMode ? '#27272a' : '#f8fafc',
+		clusterBorder: darkMode ? '#71717a' : '#cbd5e1'
+	};
+}
+
 function createPreviewElement(
 	source: string,
 	key: string,
@@ -141,7 +172,9 @@ function createPreviewElement(
 	canvas.setAttribute('aria-live', 'polite');
 	canvas.setAttribute('role', 'button');
 	canvas.tabIndex = 0;
-	canvas.title = isSourceHidden ? '点击编辑 Mermaid 源码' : '点击定位 Mermaid 源码';
+	const activateSourceLabel = isSourceHidden ? '点击编辑 Mermaid 源码' : '点击定位 Mermaid 源码';
+	canvas.title = activateSourceLabel;
+	canvas.setAttribute('aria-label', activateSourceLabel);
 	canvas.addEventListener('click', (event) => {
 		event.preventDefault();
 		onActivateSource();
@@ -170,31 +203,18 @@ async function renderMermaid(source: string, target: HTMLElement) {
 	target.textContent = 'Rendering...';
 
 	try {
-		const mermaid = (await import('mermaid')).default;
+		const mermaid = await getMermaidModule();
 		const darkMode = isDarkMode();
-		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: 'strict',
-			theme: 'base',
-			themeVariables: {
-				background: darkMode ? '#18181b' : '#ffffff',
-				primaryColor: darkMode ? '#27272a' : '#eff6ff',
-				primaryBorderColor: darkMode ? '#60a5fa' : '#2563eb',
-				primaryTextColor: darkMode ? '#ffffff' : '#111827',
-				secondaryColor: darkMode ? '#3f3f46' : '#fff7ed',
-				secondaryBorderColor: darkMode ? '#fb923c' : '#f97316',
-				secondaryTextColor: darkMode ? '#ffffff' : '#111827',
-				tertiaryColor: darkMode ? '#27272a' : '#f8fafc',
-				tertiaryBorderColor: darkMode ? '#38bdf8' : '#0284c7',
-				tertiaryTextColor: darkMode ? '#ffffff' : '#111827',
-				textColor: darkMode ? '#ffffff' : '#111827',
-				nodeTextColor: darkMode ? '#ffffff' : '#111827',
-				lineColor: darkMode ? '#e4e4e7' : '#374151',
-				edgeLabelBackground: darkMode ? '#18181b' : '#ffffff',
-				clusterBkg: darkMode ? '#27272a' : '#f8fafc',
-				clusterBorder: darkMode ? '#71717a' : '#cbd5e1'
-			}
-		});
+		const theme = darkMode ? 'dark' : 'light';
+		if (initializedMermaidTheme !== theme) {
+			mermaid.initialize({
+				startOnLoad: false,
+				securityLevel: 'strict',
+				theme: 'base',
+				themeVariables: createThemeVariables(darkMode)
+			});
+			initializedMermaidTheme = theme;
+		}
 		const id = `cw-mermaid-${hashString(source)}-${Date.now().toString(36)}`;
 		const result = await mermaid.render(id, applyReadableStyleTextColors(source));
 		if (!target.isConnected) {
@@ -258,7 +278,7 @@ function buildDecorations(state: EditorState, hiddenByKey: Record<string, boolea
 		}
 
 		const source = block.node.textContent;
-		const key = `mermaid-${block.pos}-${hashString(source)}`;
+		const key = `mermaid-${block.pos}`;
 		const isSourceHidden = hiddenByKey[key] ?? true;
 		nextHiddenByKey[key] = isSourceHidden;
 		const sourcePosition = block.pos + 1;
@@ -300,6 +320,44 @@ function buildDecorations(state: EditorState, hiddenByKey: Record<string, boolea
 	};
 }
 
+function getMermaidSources(state: EditorState): string[] {
+	return findChildren(state.doc, (node) => node.type.name === 'codeBlock')
+		.filter((block) => isMermaidLanguage(block.node.attrs.language))
+		.map((block) => block.node.textContent);
+}
+
+function hasMermaidSourceChanges(oldState: EditorState, newState: EditorState): boolean {
+	const previousSources = getMermaidSources(oldState);
+	const nextSources = getMermaidSources(newState);
+	if (previousSources.length !== nextSources.length) {
+		return true;
+	}
+	return previousSources.some((source, index) => source !== nextSources[index]);
+}
+
+function mapHiddenByKey(
+	hiddenByKey: Record<string, boolean>,
+	transaction: Transaction
+) {
+	const nextHiddenByKey: Record<string, boolean> = {};
+	for (const [key, isHidden] of Object.entries(hiddenByKey)) {
+		if (!key.startsWith('mermaid-')) {
+			nextHiddenByKey[key] = isHidden;
+			continue;
+		}
+		const position = Number.parseInt(key.slice('mermaid-'.length), 10);
+		if (!Number.isFinite(position)) {
+			continue;
+		}
+		const mapped = transaction.mapping.mapResult(position, 1);
+		if (mapped.deleted) {
+			continue;
+		}
+		nextHiddenByKey[`mermaid-${mapped.pos}`] = isHidden;
+	}
+	return nextHiddenByKey;
+}
+
 export function createMermaidPreviewExtension() {
 	return Extension.create({
 		name: 'mermaidPreview',
@@ -310,7 +368,7 @@ export function createMermaidPreviewExtension() {
 					key: mermaidPreviewPluginKey,
 					state: {
 						init: (_, state) => buildDecorations(state, {}),
-						apply: (transaction, previous: MermaidPreviewPluginState, _oldState, newState) => {
+						apply: (transaction, previous: MermaidPreviewPluginState, oldState, newState) => {
 							const meta = transaction.getMeta(mermaidPreviewPluginKey);
 							if (meta?.type === 'toggle-source' && typeof meta.key === 'string') {
 								return buildDecorations(newState, {
@@ -325,7 +383,14 @@ export function createMermaidPreviewExtension() {
 									hiddenByKey: previous.hiddenByKey
 								};
 							}
-							return buildDecorations(newState, previous.hiddenByKey);
+							const mappedHiddenByKey = mapHiddenByKey(previous.hiddenByKey, transaction);
+							if (!hasMermaidSourceChanges(oldState, newState)) {
+								return {
+									decorations: previous.decorations.map(transaction.mapping, transaction.doc),
+									hiddenByKey: mappedHiddenByKey
+								};
+							}
+							return buildDecorations(newState, mappedHiddenByKey);
 						}
 					},
 					props: {
