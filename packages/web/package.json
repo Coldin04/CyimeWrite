@@ -63,6 +63,7 @@
 		"katex": "^0.16.44",
 		"lowlight": "^3.3.0",
 		"marked": "^17.0.4",
+		"mermaid": "^11.15.0",
 		"svelte-easy-crop": "^5.0.0",
 		"svelte-sonner": "^1.0.8",
 		"y-protocols": "^1.0.7",

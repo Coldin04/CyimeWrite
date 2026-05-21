@@ -28,7 +28,11 @@
 	import Code from '~icons/ph/code';
 	import Minus from '~icons/ph/minus';
 	import { CyImage, cyImageAlignments, cyImageWidths } from '$lib/components/editor/CyImage';
-	import { createCodeBlockLowlightExtension } from '$lib/components/editor/codeHighlight';
+	import {
+		createCodeBlockLowlightExtension,
+		normalizeCodeBlockLanguage
+	} from '$lib/components/editor/codeHighlight';
+	import { createMermaidPreviewExtension } from '$lib/components/editor/mermaidPreview';
 	import CodeLanguageMenu from '$lib/components/editor/CodeLanguageMenu.svelte';
 	import ImageTitleControls from '$lib/components/editor/ImageTitleControls.svelte';
 	import HeadingLevelMenu from '$lib/components/editor/HeadingLevelMenu.svelte';
@@ -264,6 +268,27 @@
 			}
 		};
 
+		const sanitizeCodeLanguageClass = (element: Element): boolean => {
+			const isCodeBlockCode =
+				element.tagName.toLowerCase() === 'code' &&
+				element.parentElement?.tagName.toLowerCase() === 'pre';
+			if (!isCodeBlockCode) {
+				return false;
+			}
+
+			const languageClass = [...element.classList].find((className) =>
+				className.toLowerCase().startsWith('language-')
+			);
+			const language = normalizeCodeBlockLanguage(languageClass?.slice('language-'.length) ?? '');
+			if (!language) {
+				element.removeAttribute('class');
+				return true;
+			}
+
+			element.setAttribute('class', `language-${language}`);
+			return true;
+		};
+
 		doc.querySelectorAll('script, style, meta, link').forEach((node) => node.remove());
 
 		doc.querySelectorAll('img').forEach((img) => {
@@ -279,7 +304,7 @@
 				const attrName = attr.name.toLowerCase();
 				const isUnsafe =
 					attrName === 'style' ||
-					attrName === 'class' ||
+					(attrName === 'class' && !sanitizeCodeLanguageClass(element)) ||
 					attrName === 'id' ||
 					attrName.startsWith('on') ||
 					attrName.startsWith('data-') ||
@@ -859,6 +884,7 @@
 				...(collaboration?.doc ? { undoRedo: false } : {})
 			}),
 			createCodeBlockLowlightExtension(),
+			createMermaidPreviewExtension(),
 			CyImage.configure({
 				inline: false,
 				allowBase64: true

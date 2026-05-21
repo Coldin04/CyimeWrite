@@ -327,9 +327,10 @@
 				const printContent = await inlineManagedImagesAsDataURLs(exportContent, (assetId) =>
 					resolveApiUrl(`/api/v1/media/assets/${assetId}/content`)
 				);
-				const html = exportHtmlDocument({
+				const html = await exportHtmlDocument({
 					title: title.trim() || 'Cyime Export',
-					contentJson: printContent
+					contentJson: printContent,
+					colorMode: 'light'
 				});
 				await exportPdfDocument({
 					title: title.trim() || 'Cyime Export',

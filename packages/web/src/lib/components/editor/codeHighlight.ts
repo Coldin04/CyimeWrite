@@ -5,6 +5,7 @@ export const codeBlockLanguageOptions = [
 	{ value: '', label: 'Auto' },
 	{ value: 'bash', label: 'Bash' },
 	{ value: 'sh', label: 'Shell' },
+	{ value: 'mermaid', label: 'Mermaid' },
 	{ value: 'c', label: 'C' },
 	{ value: 'cpp', label: 'C++' }
 ] as const;
