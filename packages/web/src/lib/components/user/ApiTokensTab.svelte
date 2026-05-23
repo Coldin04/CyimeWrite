@@ -22,10 +22,11 @@
 		{ value: 'workspace:read', label: 'workspace:read' },
 		{ value: 'workspace:write', label: 'workspace:write' },
 		{ value: 'document:read', label: 'document:read' },
-		{ value: 'document:write', label: 'document:write' },
-		{ value: 'file:move', label: 'file:move' },
-		{ value: 'file:copy', label: 'file:copy' }
-	];
+	{ value: 'document:write', label: 'document:write' },
+	{ value: 'file:move', label: 'file:move' },
+	{ value: 'file:copy', label: 'file:copy' },
+	{ value: 'file:delete', label: 'file:delete' }
+];
 
 	const readScopes: ApiTokenScope[] = ['workspace:read', 'document:read'];
 	const workspaceEditScopes: ApiTokenScope[] = [

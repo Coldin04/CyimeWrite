@@ -57,6 +57,11 @@ type CopyFileRequest struct {
 	Name                string     `json:"name"`
 }
 
+type DeleteFileResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
 type FileOperationResponse struct {
 	Success bool                `json:"success"`
 	Item    *workspace.FileItem `json:"item,omitempty"`
@@ -263,6 +268,24 @@ func CopyFileHandler(c *fiber.Ctx) error {
 		return workspaceError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(FileOperationResponse{Success: true, Item: item})
+}
+
+func DeleteFileHandler(c *fiber.Ctx) error {
+	userID, fileID, ok := parseFileRequestID(c)
+	if !ok {
+		return nil
+	}
+
+	fileType, err := normalizeFileType(c.Query("type"))
+	if err != nil {
+		return badRequest(c, err)
+	}
+
+	if err := workspace.DeleteFile(userID, fileID, fileType); err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{Error: "Not Found", Message: err.Error()})
+	}
+
+	return c.JSON(DeleteFileResponse{Success: true, Message: "File moved to trash"})
 }
 
 func parseRequestIDs(c *fiber.Ctx) (uuid.UUID, uuid.UUID, bool) {

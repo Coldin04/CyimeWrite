@@ -24,7 +24,7 @@ func TestNormalizeScopesDeduplicatesAndRejectsUnknown(t *testing.T) {
 }
 
 func TestEncodeDecodeScopes(t *testing.T) {
-	encoded, err := EncodeScopes([]string{ScopeWorkspaceRead, ScopeFileCopy})
+	encoded, err := EncodeScopes([]string{ScopeWorkspaceRead, ScopeFileCopy, ScopeFileDelete})
 	if err != nil {
 		t.Fatalf("EncodeScopes returned error: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestEncodeDecodeScopes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeScopes returned error: %v", err)
 	}
-	if !HasScopes(decoded, ScopeWorkspaceRead, ScopeFileCopy) {
+	if !HasScopes(decoded, ScopeWorkspaceRead, ScopeFileCopy, ScopeFileDelete) {
 		t.Fatalf("decoded scopes %#v do not include expected scopes", decoded)
 	}
 	if HasScopes(decoded, ScopeDocumentWrite) {

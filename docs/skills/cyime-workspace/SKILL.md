@@ -27,6 +27,7 @@ When importing this skill into LobeHub Skills, configure a secret skill variable
 - Required: true
 - Value: a Cyime API token created in Cyime user settings
 - Recommended scopes: `workspace:read`, `workspace:write`, `document:read`, `document:write`, `file:move`, `file:copy`
+- Optional destructive scope: `file:delete`. Enable it only when the user wants AI clients to move files to trash.
 
 Use this secret only to send HTTP requests with `Authorization: Bearer $CYIME_API_TOKEN`. Do not place the token in `skill.md`, manifest URLs, prompts, chat messages, generated documents, or logs.
 
@@ -59,6 +60,7 @@ Do not call Cyime when:
 5. Prefer incremental writes with `cyime_patch_markdown_document` when only part of a document changes.
 6. Use `baseVersion` on write requests. If the server returns a conflict, reread the document and retry carefully.
 7. Ask for confirmation before bulk copy/move operations or large rewrites.
+8. Ask for explicit confirmation before using `cyime_delete_file`.
 
 ## MCP Tools
 
@@ -71,8 +73,26 @@ Do not call Cyime when:
 - `cyime_rename_file`
 - `cyime_move_file`
 - `cyime_copy_file`
+- `cyime_delete_file`
 
-MCP uses JSON-RPC. Example:
+Business errors from `tools/call` are returned as a normal JSON-RPC result with `isError: true`. Check `result.isError` before assuming the operation succeeded.
+
+MCP uses HTTP JSON-RPC. Send requests with `POST /api/v1/mcp` and `Content-Type: application/json`.
+
+Tool scopes:
+
+- `cyime_list_files`: `workspace:read`
+- `cyime_create_folder`: `workspace:write`
+- `cyime_create_markdown_document`: `workspace:write`, `document:write`
+- `cyime_read_markdown_document`: `document:read`
+- `cyime_update_markdown_document`: `document:write`
+- `cyime_patch_markdown_document`: `document:read`, `document:write`
+- `cyime_rename_file`: `workspace:write`
+- `cyime_move_file`: `file:move`
+- `cyime_copy_file`: `file:copy`, `workspace:write`
+- `cyime_delete_file`: `file:delete`
+
+Example:
 
 ```http
 POST /api/v1/mcp
@@ -102,6 +122,7 @@ POST /api/v1/open/documents
 PATCH /api/v1/open/files/{id}
 PUT /api/v1/open/files/{id}/move
 POST /api/v1/open/files/{id}/copy
+DELETE /api/v1/open/files/{id}?type=document
 GET /api/v1/open/documents/{documentId}/content?format=markdown
 PUT /api/v1/open/documents/{documentId}/content
 PATCH /api/v1/open/documents/{documentId}/content
@@ -111,7 +132,7 @@ REST requests and responses are documented at `/openapi.json`. They use the same
 
 ## Safety Rules
 
-- Do not delete content; this skill does not expose delete operations.
+- Only delete files when the user clearly asks for deletion and confirms it. Delete moves files to trash; this skill does not expose permanent deletion.
 - Do not overwrite a document without reading current content unless the user provided the latest content directly.
 - If multiple matching documents are found, ask the user to choose unless the context clearly identifies one.
 - If a write fails with a Markdown conversion error or converter unavailable error, tell the user the document was not changed and suggest retrying later or simplifying unsupported Markdown syntax.

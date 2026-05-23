@@ -14,6 +14,7 @@ const (
 	ScopeDocumentWrite  = "document:write"
 	ScopeFileMove       = "file:move"
 	ScopeFileCopy       = "file:copy"
+	ScopeFileDelete     = "file:delete"
 )
 
 var allowedScopes = []string{
@@ -23,6 +24,7 @@ var allowedScopes = []string{
 	ScopeDocumentWrite,
 	ScopeFileMove,
 	ScopeFileCopy,
+	ScopeFileDelete,
 }
 
 func NormalizeScopes(scopes []string) ([]string, error) {

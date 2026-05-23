@@ -105,6 +105,9 @@ func TestHandleToolsList(t *testing.T) {
 	if !strings.Contains(string(raw), "cyime_list_files") {
 		t.Fatalf("tools/list did not include cyime_list_files: %s", raw)
 	}
+	if !strings.Contains(string(raw), "cyime_delete_file") {
+		t.Fatalf("tools/list did not include cyime_delete_file: %s", raw)
+	}
 }
 
 func TestHandleToolsCallChecksScopes(t *testing.T) {

@@ -16,6 +16,7 @@ Supported capabilities:
 - Rename folders or documents.
 - Move folders or documents.
 - Copy folders or documents.
+- Move folders or documents to trash.
 
 ## Public Skill URLs
 
@@ -58,6 +59,10 @@ Recommended scopes for the full workspace skill are:
 - `file:move`
 - `file:copy`
 
+Optional destructive scope:
+
+- `file:delete` — enable only when AI clients should be allowed to move files to trash.
+
 Preferred MCP endpoint:
 
 - `POST /api/v1/mcp`
@@ -73,6 +78,7 @@ MCP tools:
 - `cyime_rename_file`
 - `cyime_move_file`
 - `cyime_copy_file`
+- `cyime_delete_file`
 
 REST fallback endpoints:
 
@@ -82,6 +88,7 @@ REST fallback endpoints:
 - `PATCH /api/v1/open/files/{id}`
 - `PUT /api/v1/open/files/{id}/move`
 - `POST /api/v1/open/files/{id}/copy`
+- `DELETE /api/v1/open/files/{id}?type=document`
 - `GET /api/v1/open/documents/{id}/content?format=markdown`
 - `PUT /api/v1/open/documents/{id}/content`
 - `PATCH /api/v1/open/documents/{id}/content`
@@ -105,12 +112,27 @@ Do not call the skill when:
 
 ## MCP Contract
 
-Clients should prefer MCP when available. Cyime exposes a JSON-RPC MCP endpoint at `/api/v1/mcp` with:
+Clients should prefer MCP when available. Cyime exposes an HTTP JSON-RPC MCP endpoint at `POST /api/v1/mcp` with:
 
 - `initialize`
 - `ping`
 - `tools/list`
 - `tools/call`
+
+Business errors from `tools/call` are returned as a normal JSON-RPC result with `result.isError: true`. Clients must inspect `result.isError` before assuming a tool call succeeded. Protocol errors such as invalid JSON-RPC requests or insufficient token scope are returned as JSON-RPC errors.
+
+Tool scopes:
+
+- `cyime_list_files`: `workspace:read`
+- `cyime_create_folder`: `workspace:write`
+- `cyime_create_markdown_document`: `workspace:write`, `document:write`
+- `cyime_read_markdown_document`: `document:read`
+- `cyime_update_markdown_document`: `document:write`
+- `cyime_patch_markdown_document`: `document:read`, `document:write`
+- `cyime_rename_file`: `workspace:write`
+- `cyime_move_file`: `file:move`
+- `cyime_copy_file`: `file:copy`, `workspace:write`
+- `cyime_delete_file`: `file:delete`
 
 Example tool call:
 
@@ -189,7 +211,7 @@ If the server returns a version conflict, reread the document before retrying.
 
 - Never expose access tokens in chat output.
 - Ask for confirmation before large rewrites, bulk moves, or destructive actions.
-- Do not delete documents unless the user clearly requests deletion and confirms it.
+- Only delete files when the user clearly requests deletion and confirms it. Delete moves files to trash; the MCP skill does not expose permanent deletion.
 - Before modifying an existing document, read the current content unless the user provided the latest content directly.
 - If multiple matching documents are found, ask the user to choose or use the most likely match only when the context is clear.
 - If a write fails with a Markdown conversion error or converter unavailable error, tell the user the document was not changed and suggest retrying later or simplifying unsupported Markdown syntax.

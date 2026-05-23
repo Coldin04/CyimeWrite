@@ -60,6 +60,7 @@ export type ApiTokenScope =
 	| 'document:write'
 	| 'file:move'
 	| 'file:copy'
+	| 'file:delete'
 	| string;
 
 export type ApiToken = {

@@ -162,6 +162,11 @@ type copyFileArgs struct {
 	Name                string  `json:"name"`
 }
 
+type deleteFileArgs struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
 var tools = []toolDefinition{
 	{
 		Name:           "cyime_list_files",
@@ -274,6 +279,16 @@ var tools = []toolDefinition{
 			"name":                stringSchema("Optional copy name/title. Omit or empty to auto-generate."),
 		}, []string{"id", "type"}),
 		Call: callCopyFile,
+	},
+	{
+		Name:           "cyime_delete_file",
+		Description:    "Move a Cyime folder or document to trash. Requires explicit user confirmation before use.",
+		RequiredScopes: []string{apitoken.ScopeFileDelete},
+		InputSchema: objectSchema(map[string]any{
+			"id":   uuidSchema("File or folder UUID."),
+			"type": enumSchema("File type.", []string{"folder", "document"}),
+		}, []string{"id", "type"}),
+		Call: callDeleteFile,
 	},
 }
 
@@ -539,6 +554,21 @@ func callCopyFile(userID uuid.UUID, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"success": true, "item": item}, nil
+}
+
+func callDeleteFile(userID uuid.UUID, raw json.RawMessage) (any, error) {
+	var args deleteFileArgs
+	if err := decodeParams(raw, &args); err != nil {
+		return nil, err
+	}
+	fileID, fileType, err := parseFileArgs(args.ID, args.Type)
+	if err != nil {
+		return nil, err
+	}
+	if err := workspace.DeleteFile(userID, fileID, fileType); err != nil {
+		return nil, err
+	}
+	return map[string]any{"success": true, "message": "File moved to trash"}, nil
 }
 
 func fileOperationResult(userID uuid.UUID, fileID uuid.UUID, fileType string) (any, error) {

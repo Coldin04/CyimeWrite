@@ -193,6 +193,7 @@ func main() {
 	openRoutes.Patch("/files/:id", apitoken.Protected(apitoken.ScopeWorkspaceWrite), ai.RenameFileHandler)
 	openRoutes.Put("/files/:id/move", apitoken.Protected(apitoken.ScopeFileMove), ai.MoveFileHandler)
 	openRoutes.Post("/files/:id/copy", apitoken.Protected(apitoken.ScopeFileCopy, apitoken.ScopeWorkspaceWrite), ai.CopyFileHandler)
+	openRoutes.Delete("/files/:id", apitoken.Protected(apitoken.ScopeFileDelete), ai.DeleteFileHandler)
 	openRoutes.Post("/documents", apitoken.Protected(apitoken.ScopeWorkspaceWrite, apitoken.ScopeDocumentWrite), ai.CreateMarkdownDocumentHandler)
 	openRoutes.Get("/documents/:id/content", apitoken.Protected(apitoken.ScopeDocumentRead), ai.GetDocumentMarkdownHandler)
 	openRoutes.Put("/documents/:id/content", apitoken.Protected(apitoken.ScopeDocumentWrite), ai.UpdateDocumentMarkdownHandler)
