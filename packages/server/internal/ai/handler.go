@@ -322,6 +322,10 @@ func contentError(c *fiber.Ctx, err error) error {
 		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{Error: "Not Found", Message: err.Error()})
 	case errors.Is(err, ErrVersionConflict):
 		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{Error: "Conflict", Message: err.Error()})
+	case errors.Is(err, ErrMarkdownConverterUnavailable):
+		return c.Status(fiber.StatusBadGateway).JSON(ErrorResponse{Error: "Markdown Converter Unavailable", Message: err.Error()})
+	case errors.Is(err, ErrMarkdownConversionFailed):
+		return badRequest(c, err)
 	case errors.Is(err, ErrUnsupportedFormat), errors.Is(err, content.ErrInvalidContentJSON), errors.Is(err, content.ErrContentJSONTooLarge), errors.Is(err, content.ErrInvalidContentAssetReferences), errors.Is(err, content.ErrWorkspaceStorageQuotaExceeded):
 		return badRequest(c, err)
 	default:
@@ -342,8 +346,11 @@ func workspaceError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workspace.ErrFolderMoveCycle),
 		errors.Is(err, workspace.ErrUnsupportedDocumentType),
 		errors.Is(err, workspace.ErrUnsupportedImageTarget),
-		errors.Is(err, content.ErrContentJSONTooLarge):
+		errors.Is(err, content.ErrContentJSONTooLarge),
+		errors.Is(err, ErrMarkdownConversionFailed):
 		return badRequest(c, err)
+	case errors.Is(err, ErrMarkdownConverterUnavailable):
+		return c.Status(fiber.StatusBadGateway).JSON(ErrorResponse{Error: "Markdown Converter Unavailable", Message: err.Error()})
 	case errors.Is(err, workspace.ErrFolderNotFound),
 		errors.Is(err, workspace.ErrParentFolderNotFound),
 		errors.Is(err, workspace.ErrDocumentNotFoundOrUnauthorized),

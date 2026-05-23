@@ -273,3 +273,14 @@ export async function revokeApiToken(id: string): Promise<void> {
 		throw new Error(error.error || error.message || 'Failed to revoke API token');
 	}
 }
+
+export async function deleteRevokedApiToken(id: string): Promise<void> {
+	const response = await apiFetch(`/api/v1/user/api-tokens/${id}/record`, {
+		method: 'DELETE'
+	});
+
+	if (!response.ok) {
+		const error = await response.json().catch(() => ({}));
+		throw new Error(error.error || error.message || 'Failed to delete API token record');
+	}
+}

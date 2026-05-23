@@ -9,7 +9,6 @@
 	import ProfileTab from '$lib/components/user/ProfileTab.svelte';
 	import SecurityTab from '$lib/components/user/SecurityTab.svelte';
 	import ApiTokensTab from '$lib/components/user/ApiTokensTab.svelte';
-	import McpConfigTab from '$lib/components/user/McpConfigTab.svelte';
 	import MediaTab from '$lib/components/user/MediaTab.svelte';
 	import ImageBedsTab from '$lib/components/user/ImageBedsTab.svelte';
 	import SharingTab from '$lib/components/user/SharingTab.svelte';
@@ -32,7 +31,6 @@
 		get 'image-beds'() { return m.user_nav_image_beds(); },
 		get security() { return m.user_security_title(); },
 		get 'api-tokens'() { return m.user_api_tokens_title(); },
-		get mcp() { return m.user_mcp_config_title(); },
 		get media() { return m.user_media_title(); },
 		get sharing() { return m.user_nav_sharing(); }
 	};
@@ -43,7 +41,6 @@
 		get 'image-beds'() { return m.user_image_beds_description(); },
 		get security() { return m.user_security_description(); },
 		get 'api-tokens'() { return m.user_api_tokens_description(); },
-		get mcp() { return m.user_mcp_config_description(); },
 		get media() { return m.user_media_description(); },
 		get sharing() { return m.user_sharing_description(); }
 	};
@@ -80,8 +77,6 @@
 		<SecurityTab />
 	{:else if tab === 'api-tokens'}
 		<ApiTokensTab />
-	{:else if tab === 'mcp'}
-		<McpConfigTab />
 	{:else if tab === 'media'}
 		<MediaTab />
 	{:else if tab === 'sharing' && collaborationEnabled}

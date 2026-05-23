@@ -74,3 +74,37 @@ func TestUpdateTokenRenamesAndReplacesScopes(t *testing.T) {
 		t.Fatalf("authenticated scopes were not updated: %#v", authenticated.Scopes)
 	}
 }
+
+func TestDeleteRevokedTokenOnlyDeletesRevokedRecords(t *testing.T) {
+	db := setupAPITokenTestDB(t)
+	userID := uuid.New()
+	if err := db.Create(&models.User{ID: userID}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	created, err := CreateToken(userID, CreateTokenInput{
+		Name:   "delete-me",
+		Scopes: []string{ScopeWorkspaceRead},
+	})
+	if err != nil {
+		t.Fatalf("CreateToken returned error: %v", err)
+	}
+
+	if err := DeleteRevokedToken(userID, created.ID); err == nil {
+		t.Fatal("expected active token record delete to fail")
+	}
+	if err := RevokeToken(userID, created.ID); err != nil {
+		t.Fatalf("RevokeToken returned error: %v", err)
+	}
+	if err := DeleteRevokedToken(userID, created.ID); err != nil {
+		t.Fatalf("DeleteRevokedToken returned error: %v", err)
+	}
+
+	items, err := ListTokens(userID)
+	if err != nil {
+		t.Fatalf("ListTokens returned error: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("len(items) = %d, want 0", len(items))
+	}
+}

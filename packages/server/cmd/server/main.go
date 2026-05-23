@@ -94,6 +94,7 @@ func main() {
 	userRoutes.Get("/api-tokens", apitoken.ListTokensHandler)
 	userRoutes.Post("/api-tokens", apitoken.CreateTokenHandler)
 	userRoutes.Put("/api-tokens/:id", apitoken.UpdateTokenHandler)
+	userRoutes.Delete("/api-tokens/:id/record", apitoken.DeleteRevokedTokenHandler)
 	userRoutes.Delete("/api-tokens/:id", apitoken.RevokeTokenHandler)
 	userRoutes.Put("/profile", user.UpdateProfileHandler)
 	userRoutes.Post("/avatar", user.UploadAvatarHandler)

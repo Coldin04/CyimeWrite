@@ -15,6 +15,7 @@ import (
 
 func setupAIServiceTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	t.Setenv("MARKDOWN_CONVERTER_URL", "")
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", uuid.NewString())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})

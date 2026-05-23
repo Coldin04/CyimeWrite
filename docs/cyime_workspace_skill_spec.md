@@ -192,3 +192,4 @@ If the server returns a version conflict, reread the document before retrying.
 - Do not delete documents unless the user clearly requests deletion and confirms it.
 - Before modifying an existing document, read the current content unless the user provided the latest content directly.
 - If multiple matching documents are found, ask the user to choose or use the most likely match only when the context is clear.
+- If a write fails with a Markdown conversion error or converter unavailable error, tell the user the document was not changed and suggest retrying later or simplifying unsupported Markdown syntax.

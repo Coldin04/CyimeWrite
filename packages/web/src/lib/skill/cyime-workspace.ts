@@ -1,6 +1,6 @@
 import { apiBaseUrl } from '$lib/config/api';
 
-export const skillSpecVersion = '2026-05-23.1';
+export const skillSpecVersion = '2026-05-23.2';
 
 export type SkillDocument = {
 	apiBaseUrl: string;
@@ -175,6 +175,7 @@ REST requests and responses are documented at ${document.openapiUrl}. They use t
 - Do not delete content; this skill does not expose delete operations.
 - Do not overwrite a document without reading current content unless the user provided the latest content directly.
 - If multiple matching documents are found, ask the user to choose unless the context clearly identifies one.
+- If a write fails with a Markdown conversion error or converter unavailable error, tell the user the document was not changed and suggest retrying later or simplifying unsupported Markdown syntax.
 - Keep Cyime-facing content in Markdown.`;
 }
 

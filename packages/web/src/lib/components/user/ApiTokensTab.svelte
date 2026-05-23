@@ -3,9 +3,14 @@
 	import { toast } from 'svelte-sonner';
 	import * as m from '$paraglide/messages';
 	import PencilSimple from '~icons/ph/pencil-simple';
+	import PlugsConnected from '~icons/ph/plugs-connected';
+	import PuzzlePiece from '~icons/ph/puzzle-piece';
 	import Trash from '~icons/ph/trash';
+	import { apiBaseUrl } from '$lib/config/api';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import {
 		createApiToken,
+		deleteRevokedApiToken,
 		getApiTokens,
 		revokeApiToken,
 		updateApiToken,
@@ -31,22 +36,30 @@
 		'file:move',
 		'file:copy'
 	];
-	const skillPageUrl = '/skill.md';
+	const skillPagePath = '/skill.md';
+	const mcpEndpoint = `${apiBaseUrl}/api/v1/mcp`;
+	const tokenPlaceholder = '<CYIME_API_TOKEN>';
 
 	let items = $state<ApiToken[]>([]);
 	let loading = $state(true);
 	let creating = $state(false);
 	let revokingId = $state('');
+	let deletingId = $state('');
 	let updatingId = $state('');
 	let name = $state('');
 	let expiry = $state('30');
 	let selectedScopes = $state<ApiTokenScope[]>([...workspaceEditScopes]);
 	let createdToken = $state('');
 	let editingToken = $state<ApiToken | null>(null);
+	let revokeTarget = $state<ApiToken | null>(null);
+	let deleteRecordTarget = $state<ApiToken | null>(null);
 	let editName = $state('');
 	let editableScopes = $state<ApiTokenScope[]>([]);
+	let frontendOrigin = $state('');
+	const skillPageUrl = $derived(frontendOrigin ? `${frontendOrigin}${skillPagePath}` : skillPagePath);
 
 	onMount(() => {
+		frontendOrigin = window.location.origin;
 		void loadTokens();
 	});
 
@@ -82,7 +95,46 @@
 		return expiresAt.toISOString();
 	}
 
-	async function handleCreate() {
+	function buildMcpImportConfig(tokenValue: string): string {
+		const rawToken = tokenValue.trim() || tokenPlaceholder;
+		return JSON.stringify(
+			{
+				mcpServers: {
+					'cyime-workspace': {
+						type: 'http',
+						url: mcpEndpoint,
+						headers: {
+							Authorization: `Bearer ${rawToken}`
+						}
+					}
+				}
+			},
+			null,
+			2
+		);
+	}
+
+	async function copyMcpImportConfig(tokenValue = createdToken, successMessage = m.user_api_tokens_mcp_copied()) {
+		if (!tokenValue.trim()) return;
+		try {
+			await navigator.clipboard.writeText(buildMcpImportConfig(tokenValue));
+			toast.success(successMessage);
+		} catch {
+			toast.error(m.user_api_tokens_mcp_copy_failed());
+		}
+	}
+
+	async function copySkillImportPrompt() {
+		const prompt = m.user_api_tokens_skill_import_prompt({ url: skillPageUrl });
+		try {
+			await navigator.clipboard.writeText(prompt);
+			toast.success(m.user_api_tokens_skill_prompt_copied());
+		} catch {
+			toast.error(m.user_api_tokens_skill_prompt_copy_failed());
+		}
+	}
+
+	async function handleCreate(options: { copyMcp?: boolean } = {}) {
 		if (creating) return;
 		if (selectedScopes.length === 0) {
 			toast.error(m.user_api_tokens_scope_required());
@@ -102,7 +154,11 @@
 			selectedScopes = [...workspaceEditScopes];
 			expiry = '30';
 			await loadTokens();
-			toast.success(m.user_api_tokens_created());
+			if (options.copyMcp) {
+				await copyMcpImportConfig(created.token, m.user_api_tokens_mcp_created_and_copied());
+			} else {
+				toast.success(m.user_api_tokens_created());
+			}
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : m.user_api_tokens_create_failed());
 		} finally {
@@ -110,19 +166,55 @@
 		}
 	}
 
-	async function handleRevoke(item: ApiToken) {
-		if (!window.confirm(m.user_api_tokens_confirm_revoke({ name: item.name }))) return;
-		revokingId = item.id;
+	function openRevokeConfirm(item: ApiToken) {
+		revokeTarget = item;
+	}
+
+	function closeRevokeConfirm() {
+		if (revokingId) return;
+		revokeTarget = null;
+	}
+
+	async function confirmRevoke() {
+		if (!revokeTarget) return;
+		const target = revokeTarget;
+		revokingId = target.id;
 		try {
-			await revokeApiToken(item.id);
+			await revokeApiToken(target.id);
 			items = items.map((token) =>
-				token.id === item.id ? { ...token, revokedAt: new Date().toISOString() } : token
+				token.id === target.id ? { ...token, revokedAt: new Date().toISOString() } : token
 			);
 			toast.success(m.user_api_tokens_revoked());
+			revokeTarget = null;
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : m.user_api_tokens_revoke_failed());
 		} finally {
 			revokingId = '';
+		}
+	}
+
+	function openDeleteRecordConfirm(item: ApiToken) {
+		deleteRecordTarget = item;
+	}
+
+	function closeDeleteRecordConfirm() {
+		if (deletingId) return;
+		deleteRecordTarget = null;
+	}
+
+	async function confirmDeleteRecord() {
+		if (!deleteRecordTarget) return;
+		const target = deleteRecordTarget;
+		deletingId = target.id;
+		try {
+			await deleteRevokedApiToken(target.id);
+			items = items.filter((token) => token.id !== target.id);
+			toast.success(m.user_api_tokens_record_deleted());
+			deleteRecordTarget = null;
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : m.user_api_tokens_record_delete_failed());
+		} finally {
+			deletingId = '';
 		}
 	}
 
@@ -181,7 +273,7 @@
 </script>
 
 <div class="space-y-6">
-	<section class="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+	<section class="space-y-4">
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 			<div>
 				<h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">
@@ -191,14 +283,30 @@
 					{m.user_api_tokens_create_description()}
 				</p>
 			</div>
-			<a
-				href={skillPageUrl}
-				target="_blank"
-				rel="noreferrer"
-				class="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 px-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-			>
-				{m.user_api_tokens_skill_page_action()}
-			</a>
+			<div class="flex items-center gap-2">
+				<span class="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+					{m.user_api_tokens_import_to()}
+				</span>
+				<button
+					type="button"
+					class="inline-flex h-9 w-9 items-center justify-center rounded-md text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-cyan-300 dark:hover:bg-cyan-950/30"
+					disabled={!createdToken}
+					aria-label={m.user_api_tokens_mcp_import_action()}
+					title={m.user_api_tokens_mcp_import_action()}
+					onclick={() => copyMcpImportConfig()}
+				>
+					<PlugsConnected class="h-4 w-4 shrink-0" />
+				</button>
+				<button
+					type="button"
+					class="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+					aria-label={m.user_api_tokens_skill_page_action()}
+					title={m.user_api_tokens_skill_page_action()}
+					onclick={copySkillImportPrompt}
+				>
+					<PuzzlePiece class="h-4 w-4 shrink-0" />
+				</button>
+			</div>
 		</div>
 
 		<div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
@@ -253,12 +361,20 @@
 			<p class="text-xs text-zinc-500 dark:text-zinc-400">
 				{m.user_api_tokens_edit_hint()}
 			</p>
-			<div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+			<div class="flex max-w-2xl flex-wrap gap-2">
 				{#each scopeOptions as scope (scope.value)}
-					<label class="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
+					{@const selected = selectedScopes.includes(scope.value)}
+					<label
+						class={`inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+							selected
+								? 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900/60 dark:bg-cyan-950/30 dark:text-cyan-200'
+								: 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-900'
+						}`}
+					>
 						<input
+							class="sr-only"
 							type="checkbox"
-							checked={selectedScopes.includes(scope.value)}
+							checked={selected}
 							onchange={() => toggleScope(scope.value)}
 						/>
 						<span>{scope.label}</span>
@@ -267,14 +383,24 @@
 			</div>
 		</div>
 
-		<button
-			type="button"
-			class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-			disabled={creating}
-			onclick={handleCreate}
-		>
-			{creating ? m.common_loading() : m.user_api_tokens_create_action()}
-		</button>
+		<div class="flex flex-wrap gap-2">
+			<button
+				type="button"
+				class="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+				disabled={creating}
+				onclick={() => handleCreate()}
+			>
+				{creating ? m.common_loading() : m.user_api_tokens_create_action()}
+			</button>
+			<button
+				type="button"
+				class="rounded-lg bg-cyan-50 px-4 py-2 text-sm font-medium text-cyan-700 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-cyan-950/30 dark:text-cyan-300 dark:hover:bg-cyan-950/50"
+				disabled={creating}
+				onclick={() => handleCreate({ copyMcp: true })}
+			>
+				{creating ? m.common_loading() : m.user_api_tokens_create_and_copy_mcp_action()}
+			</button>
+		</div>
 
 		{#if createdToken}
 			<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/20">
@@ -291,6 +417,13 @@
 						onclick={copyCreatedToken}
 					>
 						{m.user_api_tokens_copy_action()}
+					</button>
+					<button
+						type="button"
+						class="rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-900 transition hover:bg-amber-100 dark:border-amber-800 dark:text-amber-100 dark:hover:bg-amber-950/40"
+						onclick={() => copyMcpImportConfig()}
+					>
+						{m.user_api_tokens_copy_mcp_action()}
 					</button>
 				</div>
 			</div>
@@ -342,26 +475,39 @@
 								</div>
 							</div>
 							<div class="flex gap-1 md:justify-end">
-								<button
-									type="button"
-									class="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-									disabled={!!item.revokedAt || updatingId === item.id}
-									aria-label={m.user_api_tokens_edit_action()}
-									title={m.user_api_tokens_edit_action()}
-									onclick={() => openEditDialog(item)}
-								>
-									<PencilSimple class="h-4 w-4 shrink-0" />
-								</button>
-								<button
-									type="button"
-									class="inline-flex h-9 w-9 items-center justify-center rounded-md text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-rose-300 dark:hover:bg-rose-950/20"
-									disabled={!!item.revokedAt || revokingId === item.id}
-									aria-label={m.user_api_tokens_revoke_action()}
-									title={m.user_api_tokens_revoke_action()}
-									onclick={() => handleRevoke(item)}
-								>
-									<Trash class={`h-4 w-4 shrink-0 ${revokingId === item.id ? 'animate-pulse' : ''}`} />
-								</button>
+								{#if item.revokedAt}
+									<button
+										type="button"
+										class="inline-flex h-9 w-9 items-center justify-center rounded-md text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-rose-300 dark:hover:bg-rose-950/20"
+										disabled={deletingId === item.id}
+										aria-label={m.user_api_tokens_delete_record_action()}
+										title={m.user_api_tokens_delete_record_action()}
+										onclick={() => openDeleteRecordConfirm(item)}
+									>
+										<Trash class={`h-4 w-4 shrink-0 ${deletingId === item.id ? 'animate-pulse' : ''}`} />
+									</button>
+								{:else}
+									<button
+										type="button"
+										class="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+										disabled={updatingId === item.id}
+										aria-label={m.user_api_tokens_edit_action()}
+										title={m.user_api_tokens_edit_action()}
+										onclick={() => openEditDialog(item)}
+									>
+										<PencilSimple class="h-4 w-4 shrink-0" />
+									</button>
+									<button
+										type="button"
+										class="inline-flex h-9 w-9 items-center justify-center rounded-md text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-rose-300 dark:hover:bg-rose-950/20"
+										disabled={revokingId === item.id}
+										aria-label={m.user_api_tokens_revoke_action()}
+										title={m.user_api_tokens_revoke_action()}
+										onclick={() => openRevokeConfirm(item)}
+									>
+										<Trash class={`h-4 w-4 shrink-0 ${revokingId === item.id ? 'animate-pulse' : ''}`} />
+									</button>
+								{/if}
 							</div>
 						</div>
 					</article>
@@ -370,6 +516,24 @@
 		{/if}
 	</section>
 </div>
+
+<ConfirmDialog
+	open={!!revokeTarget}
+	message={revokeTarget ? m.user_api_tokens_confirm_revoke({ name: revokeTarget.name }) : ''}
+	confirmText={m.user_api_tokens_revoke_action()}
+	loading={!!revokingId}
+	onCancel={closeRevokeConfirm}
+	onConfirm={confirmRevoke}
+/>
+
+<ConfirmDialog
+	open={!!deleteRecordTarget}
+	message={deleteRecordTarget ? m.user_api_tokens_confirm_delete_record({ name: deleteRecordTarget.name }) : ''}
+	confirmText={m.user_api_tokens_delete_record_action()}
+	loading={!!deletingId}
+	onCancel={closeDeleteRecordConfirm}
+	onConfirm={confirmDeleteRecord}
+/>
 
 {#if editingToken}
 	<div
@@ -437,12 +601,20 @@
 							</button>
 						</div>
 					</div>
-					<div class="grid gap-2 sm:grid-cols-2">
+					<div class="flex max-w-lg flex-wrap gap-2">
 						{#each scopeOptions as scope (scope.value)}
-							<label class="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
+							{@const selected = editableScopes.includes(scope.value)}
+							<label
+								class={`inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+									selected
+										? 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900/60 dark:bg-cyan-950/30 dark:text-cyan-200'
+										: 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-900'
+								}`}
+							>
 								<input
+									class="sr-only"
 									type="checkbox"
-									checked={editableScopes.includes(scope.value)}
+									checked={selected}
 									onchange={() => toggleEditScope(scope.value)}
 								/>
 								<span>{scope.label}</span>

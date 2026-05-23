@@ -22,7 +22,7 @@ type markNode struct {
 
 var orderedListPattern = regexp.MustCompile(`^\s*\d+\.\s+(.+)$`)
 
-func markdownToContentJSON(markdown string) ([]byte, error) {
+func legacyMarkdownToContentJSON(markdown string) ([]byte, error) {
 	lines := strings.Split(strings.ReplaceAll(markdown, "\r\n", "\n"), "\n")
 	blocks := make([]docNode, 0, len(lines))
 
@@ -117,7 +117,7 @@ func markdownToContentJSON(markdown string) ([]byte, error) {
 	return json.Marshal(docNode{Type: "doc", Content: blocks})
 }
 
-func contentJSONToMarkdown(raw []byte) (string, error) {
+func legacyContentJSONToMarkdown(raw []byte) (string, error) {
 	var doc docNode
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return "", err

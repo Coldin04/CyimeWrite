@@ -7,6 +7,8 @@ import (
 )
 
 func TestMarkdownToContentJSONAndBack(t *testing.T) {
+	t.Setenv("MARKDOWN_CONVERTER_URL", "")
+
 	raw, err := markdownToContentJSON("# Title\n\nHello world\n\n- one\n- two\n\n```go\nfmt.Println(1)\n```")
 	if err != nil {
 		t.Fatalf("markdownToContentJSON returned error: %v", err)

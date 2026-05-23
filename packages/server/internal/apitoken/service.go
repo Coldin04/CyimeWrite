@@ -180,6 +180,19 @@ func RevokeToken(userID uuid.UUID, tokenID uuid.UUID) error {
 	return nil
 }
 
+func DeleteRevokedToken(userID uuid.UUID, tokenID uuid.UUID) error {
+	result := database.DB.
+		Where("id = ? AND user_id = ? AND revoked_at IS NOT NULL AND deleted_at IS NULL", tokenID, userID).
+		Delete(&models.ApiToken{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func Authenticate(rawToken string, ip string) (*AuthenticatedToken, error) {
 	rawToken = strings.TrimSpace(rawToken)
 	if rawToken == "" || !strings.HasPrefix(rawToken, tokenPrefix) {

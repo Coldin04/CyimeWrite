@@ -108,6 +108,26 @@ func RevokeTokenHandler(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
+func DeleteRevokedTokenHandler(c *fiber.Ctx) error {
+	userID, err := userIDFromContext(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid user context"})
+	}
+
+	tokenID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid token id"})
+	}
+
+	if err := DeleteRevokedToken(userID, tokenID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "revoked token not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
 func userIDFromContext(c *fiber.Ctx) (uuid.UUID, error) {
 	userIDStr, ok := c.Locals("userId").(string)
 	if !ok {
