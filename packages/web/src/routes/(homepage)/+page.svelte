@@ -8,7 +8,6 @@
 	} from '$lib/paraglide/manual-locale-cookie';
 	import * as m from '$paraglide/messages';
 	import { getLocale, isLocale, locales } from '$paraglide/runtime';
-	import RouteAuthGuard from '$lib/components/auth/RouteAuthGuard.svelte';
 	import GlobeHemisphereWest from '~icons/ph/globe-hemisphere-west';
 	import GithubLogo from '~icons/ph/github-logo';
 	import previewImageLightUrl from '$lib/assets/home_preview_light.png';
@@ -17,7 +16,9 @@
 
 	const homepageHeroHeadlinePhrases = [
 		m.homepage_hero_word_light(),
-		m.homepage_hero_word_flow()
+		m.homepage_hero_word_flow(),
+		m.homepage_hero_word_ai(),
+		m.homepage_hero_word_export()
 	];
 
 	let homepageHeroHeadlinePhrase = homepageHeroHeadlinePhrases[0];
@@ -103,7 +104,6 @@
   <meta name="twitter:description" content={m.homepage_meta_description()} />
 </svelte:head>
 
-<RouteAuthGuard mode="guest">
 <nav
 	class="sticky top-0 z-30 bg-white/80 py-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] backdrop-blur-md dark:bg-slate-900/80"
 >
@@ -223,8 +223,8 @@
 
 <!-- Features Section -->
 <section id="features" class="px-6 py-16 sm:px-8 md:py-24">
-	<div class="mx-auto grid w-full max-w-5xl gap-10 md:grid-cols-3 md:gap-12">
-		<div class="text-center md:text-left">
+	<div class="mx-auto flex w-full max-w-6xl flex-wrap justify-center gap-x-16 gap-y-14 md:gap-x-20 md:gap-y-16">
+		<div class="w-full max-w-[18rem] text-center md:text-left">
 			<h2 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100 md:text-2xl">
 				{m.homepage_online_sync_title()}
 			</h2>
@@ -232,7 +232,7 @@
 				{m.homepage_online_sync_description()}
 			</p>
 		</div>
-		<div class="text-center md:text-left">
+		<div class="w-full max-w-[18rem] text-center md:text-left">
 			<h2 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100 md:text-2xl">
 				{m.homepage_focus_writing_title()}
 			</h2>
@@ -240,12 +240,28 @@
 				{m.homepage_focus_writing_description()}
 			</p>
 		</div>
-		<div class="text-center md:text-left">
+		<div class="w-full max-w-[18rem] text-center md:text-left">
 			<h2 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100 md:text-2xl">
 				{m.homepage_feature_media_title()}
 			</h2>
 			<p class="mt-4 text-sm leading-7 text-slate-500 dark:text-slate-400">
 				{m.homepage_feature_media_desc()}
+			</p>
+		</div>
+		<div class="w-full max-w-[18rem] text-center md:text-left">
+			<h2 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100 md:text-2xl">
+				{m.homepage_feature_export_title()}
+			</h2>
+			<p class="mt-4 text-sm leading-7 text-slate-500 dark:text-slate-400">
+				{m.homepage_feature_export_desc()}
+			</p>
+		</div>
+		<div class="w-full max-w-[18rem] text-center md:text-left">
+			<h2 class="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100 md:text-2xl">
+				{m.homepage_feature_ai_title()}
+			</h2>
+			<p class="mt-4 text-sm leading-7 text-slate-500 dark:text-slate-400">
+				{m.homepage_feature_ai_desc()}
 			</p>
 		</div>
 	</div>
@@ -290,8 +306,6 @@
 		</div>
 	</div>
 </footer>
-</RouteAuthGuard>
-
 
 <style>
 	@keyframes slideInFromRight {

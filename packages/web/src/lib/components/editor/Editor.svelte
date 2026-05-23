@@ -8,13 +8,13 @@
 	import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 	import Link from '@tiptap/extension-link';
 	import Mathematics from '@tiptap/extension-mathematics';
+	import { Markdown } from '@tiptap/markdown';
 	import Placeholder from '@tiptap/extension-placeholder';
 	import StarterKit from '@tiptap/starter-kit';
 	import { Table } from '@tiptap/extension-table';
 	import { TableCell } from '@tiptap/extension-table-cell';
 	import { TableHeader } from '@tiptap/extension-table-header';
 	import { TableRow } from '@tiptap/extension-table-row';
-	import { marked } from 'marked';
 	import * as m from '$paraglide/messages';
 	import TextB from '~icons/ph/text-b';
 	import TextItalic from '~icons/ph/text-italic';
@@ -922,6 +922,12 @@
 			TableRow,
 			TableHeader,
 			TableCell,
+			Markdown.configure({
+				markedOptions: {
+					gfm: true,
+					breaks: true
+				}
+			}),
 			...(!readOnly
 				? [
 						Placeholder.configure({
@@ -1042,19 +1048,15 @@
 
 						if (!looksLikeMarkdown(text)) return false;
 
-						const rendered = marked.parse(text, {
-							async: false,
-							gfm: true,
-							breaks: true
-						});
-						if (typeof rendered !== 'string') return false;
-
 						clipboardEvent.preventDefault();
-						editor
+						const inserted = editor
 							?.chain()
 							.focus()
-							.insertContent(sanitizePastedHTML(rendered))
+							.insertContent(text, { contentType: 'markdown' })
 							.run();
+						if (!inserted) {
+							toast.error(m.editor_markdown_insert_failed());
+						}
 						return true;
 					}
 				},

@@ -146,6 +146,7 @@ func Connect() {
 		&models.UserImageBedConfig{},
 		&models.AuthProvider{},
 		&models.UserIdentityProvider{},
+		&models.ApiToken{},
 		&models.UserSession{},
 	)
 	if err != nil {

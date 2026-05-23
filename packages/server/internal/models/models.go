@@ -122,6 +122,33 @@ func (us *UserSession) BeforeCreate(tx *gorm.DB) (err error) {
 	return
 }
 
+// BeforeCreate will set a UUID rather than relying on the database to generate it.
+func (t *ApiToken) BeforeCreate(tx *gorm.DB) (err error) {
+	if t.ID == uuid.Nil {
+		t.ID = uuid.New()
+	}
+	return
+}
+
+// ApiToken stores a long-lived user-created API credential. Only a hash of the
+// raw token is persisted; the raw token is shown once at creation time.
+type ApiToken struct {
+	ID          uuid.UUID `gorm:"type:uuid;primary_key"`
+	UserID      uuid.UUID `gorm:"not null;index"`
+	User        User      `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE;"`
+	Name        string    `gorm:"type:varchar(120);not null"`
+	TokenPrefix string    `gorm:"type:varchar(32);not null;index"`
+	TokenHash   string    `gorm:"type:varchar(64);not null;uniqueIndex"`
+	Scopes      string    `gorm:"type:text;not null"`
+	LastUsedAt  *time.Time
+	LastUsedIP  string `gorm:"type:varchar(64);not null;default:''"`
+	ExpiresAt   *time.Time
+	RevokedAt   *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   gorm.DeletedAt `gorm:"index"`
+}
+
 // UserSession stores a logical login session for one user.
 type UserSession struct {
 	ID          uuid.UUID `gorm:"type:uuid;primary_key"`
@@ -460,6 +487,10 @@ func (UserSession) TableName() string {
 
 func (UserRefreshToken) TableName() string {
 	return "user_refresh_tokens"
+}
+
+func (ApiToken) TableName() string {
+	return "api_tokens"
 }
 
 func (Folder) TableName() string {

@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"g.co1d.in/Coldin04/Cyime/server/internal/config"
 	"g.co1d.in/Coldin04/Cyime/server/internal/database"
 	"g.co1d.in/Coldin04/Cyime/server/internal/models"
 	"g.co1d.in/Coldin04/Cyime/server/internal/securevalue"
@@ -75,17 +75,7 @@ type SessionResponseDTO struct {
 }
 
 func getAPIBaseURL() string {
-	baseURL := strings.TrimSpace(os.Getenv("API_BASE_URL"))
-	if baseURL == "" {
-		port := strings.TrimSpace(os.Getenv("PORT"))
-		if port == "" {
-			port = "8080"
-		}
-		port = strings.TrimPrefix(port, ":")
-		baseURL = fmt.Sprintf("http://localhost:%s", port)
-	}
-
-	return strings.TrimRight(baseURL, "/")
+	return config.GetPublicAPIBaseURL()
 }
 
 // GetAuthConfig is the handler for GET /api/v1/auth/config

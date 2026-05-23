@@ -53,6 +53,33 @@ export type ImageBedProvider = {
 	fields: ImageBedProviderField[];
 };
 
+export type ApiTokenScope =
+	| 'workspace:read'
+	| 'workspace:write'
+	| 'document:read'
+	| 'document:write'
+	| 'file:move'
+	| 'file:copy'
+	| 'file:delete'
+	| string;
+
+export type ApiToken = {
+	id: string;
+	name: string;
+	tokenPrefix: string;
+	scopes: ApiTokenScope[];
+	lastUsedAt?: string | null;
+	lastUsedIp?: string;
+	expiresAt?: string | null;
+	revokedAt?: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type CreatedApiToken = ApiToken & {
+	token: string;
+};
+
 async function parseUserResponse(response: Response): Promise<UserProfile> {
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({}));
@@ -178,5 +205,83 @@ export async function deleteImageBedConfig(id: string): Promise<void> {
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({}));
 		throw new Error(error.error || error.message || 'Failed to delete image bed config');
+	}
+}
+
+export async function getApiTokens(): Promise<ApiToken[]> {
+	const response = await apiFetch('/api/v1/user/api-tokens');
+
+	if (!response.ok) {
+		const error = await response.json().catch(() => ({}));
+		throw new Error(error.error || error.message || 'Failed to load API tokens');
+	}
+
+	const payload = await response.json();
+	return payload.items ?? [];
+}
+
+export async function createApiToken(request: {
+	name: string;
+	scopes: ApiTokenScope[];
+	expiresAt?: string | null;
+}): Promise<CreatedApiToken> {
+	const response = await apiFetch('/api/v1/user/api-tokens', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(request)
+	});
+
+	if (!response.ok) {
+		const error = await response.json().catch(() => ({}));
+		throw new Error(error.error || error.message || 'Failed to create API token');
+	}
+
+	return response.json();
+}
+
+export async function updateApiToken(
+	id: string,
+	request: {
+		name: string;
+		scopes: ApiTokenScope[];
+	}
+): Promise<ApiToken> {
+	const response = await apiFetch(`/api/v1/user/api-tokens/${id}`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(request)
+	});
+
+	if (!response.ok) {
+		const error = await response.json().catch(() => ({}));
+		throw new Error(error.error || error.message || 'Failed to update API token');
+	}
+
+	return response.json();
+}
+
+export async function revokeApiToken(id: string): Promise<void> {
+	const response = await apiFetch(`/api/v1/user/api-tokens/${id}`, {
+		method: 'DELETE'
+	});
+
+	if (!response.ok) {
+		const error = await response.json().catch(() => ({}));
+		throw new Error(error.error || error.message || 'Failed to revoke API token');
+	}
+}
+
+export async function deleteRevokedApiToken(id: string): Promise<void> {
+	const response = await apiFetch(`/api/v1/user/api-tokens/${id}/record`, {
+		method: 'DELETE'
+	});
+
+	if (!response.ok) {
+		const error = await response.json().catch(() => ({}));
+		throw new Error(error.error || error.message || 'Failed to delete API token record');
 	}
 }

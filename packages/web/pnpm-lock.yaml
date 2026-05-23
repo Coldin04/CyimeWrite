@@ -56,6 +56,9 @@ importers:
       '@tiptap/extension-table-row':
         specifier: ^3.20.4
         version: 3.20.4(@tiptap/extension-table@3.20.4(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0))
+      '@tiptap/markdown':
+        specifier: 3.21.0
+        version: 3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0)
       '@tiptap/pm':
         specifier: ^3.20.4
         version: 3.21.0
@@ -1005,6 +1008,12 @@ packages:
 
   '@tiptap/extensions@3.21.0':
     resolution: {integrity: sha512-MN1uh5PmHT1F2BNsbc21MIS0AMFFA73oODlp/4ckpBR4o5AxRwV+8f43Cd52UL4MgMkKj/A+QfZ7iK9IDb0h5A==}
+    peerDependencies:
+      '@tiptap/core': ^3.21.0
+      '@tiptap/pm': ^3.21.0
+
+  '@tiptap/markdown@3.21.0':
+    resolution: {integrity: sha512-VhnHhB9LeEfB2xnbNZUV2itK0ae4iERbr+a4/ZrlZB9auPtggW4fIob/bQGOaeU+GZtk1xDLyKUDyKEEwgTXMw==}
     peerDependencies:
       '@tiptap/core': ^3.21.0
       '@tiptap/pm': ^3.21.0
@@ -3166,6 +3175,12 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.21.0(@tiptap/pm@3.21.0)
       '@tiptap/pm': 3.21.0
+
+  '@tiptap/markdown@3.21.0(@tiptap/core@3.21.0(@tiptap/pm@3.21.0))(@tiptap/pm@3.21.0)':
+    dependencies:
+      '@tiptap/core': 3.21.0(@tiptap/pm@3.21.0)
+      '@tiptap/pm': 3.21.0
+      marked: 17.0.4
 
   '@tiptap/pm@3.21.0':
     dependencies:

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/acl"
 	"g.co1d.in/Coldin04/Cyime/server/internal/config"
@@ -1298,6 +1299,12 @@ func GetFiles(userID uuid.UUID, parentID *uuid.UUID, limit, offset int, sortBy, 
 	if filterType == "" {
 		filterType = "all"
 	}
+	switch filterType {
+	case "folder":
+		filterType = "folders"
+	case "document":
+		filterType = "documents"
+	}
 
 	// Validate order
 	if order != "asc" && order != "desc" {
@@ -2315,6 +2322,302 @@ func MoveFolder(userID uuid.UUID, folderID uuid.UUID, parentID *uuid.UUID) (*tim
 	}
 
 	return &updatedAt, nil
+}
+
+// CopyFile copies an owned document or folder tree into another folder or root.
+func CopyFile(userID uuid.UUID, fileID uuid.UUID, fileType string, destinationFolderID *uuid.UUID, name string) (*FileItem, error) {
+	folderHierarchyMu.Lock()
+	defer folderHierarchyMu.Unlock()
+
+	var copiedItem FileItem
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := validateCopyDestination(tx, userID, destinationFolderID); err != nil {
+			return err
+		}
+
+		switch fileType {
+		case "document":
+			document, _, err := acl.AuthorizeDocumentAction(tx, userID, fileID, acl.ActionOwnerOnly)
+			if err != nil {
+				return ErrDocumentNotFoundOrDeleted
+			}
+			copiedDocument, err := copyDocumentInTx(tx, userID, *document, destinationFolderID, name)
+			if err != nil {
+				return err
+			}
+			copiedItem = documentToFileItem(*copiedDocument, acl.RoleOwner)
+			return nil
+		case "folder":
+			var sourceFolder models.Folder
+			if err := tx.Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", fileID, userID).First(&sourceFolder).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrFolderNotFoundOrDeleted
+				}
+				return err
+			}
+			if destinationFolderID != nil {
+				if err := checkCircularDependency(tx, userID, &sourceFolder.ID, destinationFolderID); err != nil {
+					return err
+				}
+			}
+			copiedFolder, err := copyFolderTreeInTx(tx, userID, sourceFolder, destinationFolderID, name)
+			if err != nil {
+				return err
+			}
+			copiedItem = folderToFileItem(*copiedFolder)
+			return nil
+		default:
+			return errors.New("无效的文件类型")
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &copiedItem, nil
+}
+
+func validateCopyDestination(tx *gorm.DB, userID uuid.UUID, destinationFolderID *uuid.UUID) error {
+	if destinationFolderID == nil {
+		return nil
+	}
+
+	var destination models.Folder
+	if err := tx.Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", *destinationFolderID, userID).First(&destination).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTargetFolderNotFoundOrDeleted
+		}
+		return err
+	}
+	return nil
+}
+
+func copyFolderTreeInTx(tx *gorm.DB, userID uuid.UUID, source models.Folder, destinationParentID *uuid.UUID, requestedName string) (*models.Folder, error) {
+	targetName, err := resolveFolderCopyName(tx, userID, destinationParentID, source.Name, requestedName)
+	if err != nil {
+		return nil, err
+	}
+
+	additionalBytes := int64(0)
+	if source.Description != nil {
+		additionalBytes = int64(len(*source.Description))
+	}
+	if err := ensureWorkspaceStorageWithinLimit(tx, userID, additionalBytes); err != nil {
+		return nil, err
+	}
+
+	copied := &models.Folder{
+		ID:          uuid.New(),
+		OwnerUserID: userID,
+		ParentID:    destinationParentID,
+		Name:        targetName,
+		Description: source.Description,
+		CreatedBy:   userID,
+		UpdatedBy:   userID,
+	}
+	if err := tx.Create(copied).Error; err != nil {
+		return nil, err
+	}
+
+	var documents []models.Document
+	if err := tx.Where("folder_id = ? AND owner_user_id = ? AND deleted_at IS NULL", source.ID, userID).Order("created_at ASC").Find(&documents).Error; err != nil {
+		return nil, err
+	}
+	for _, document := range documents {
+		if _, err := copyDocumentInTx(tx, userID, document, &copied.ID, document.Title); err != nil {
+			return nil, err
+		}
+	}
+
+	var childFolders []models.Folder
+	if err := tx.Where("parent_id = ? AND owner_user_id = ? AND deleted_at IS NULL", source.ID, userID).Order("created_at ASC").Find(&childFolders).Error; err != nil {
+		return nil, err
+	}
+	for _, child := range childFolders {
+		if _, err := copyFolderTreeInTx(tx, userID, child, &copied.ID, child.Name); err != nil {
+			return nil, err
+		}
+	}
+
+	return copied, nil
+}
+
+func copyDocumentInTx(tx *gorm.DB, userID uuid.UUID, source models.Document, destinationFolderID *uuid.UUID, requestedTitle string) (*models.Document, error) {
+	targetTitle, err := resolveDocumentCopyTitle(tx, userID, destinationFolderID, source.Title, requestedTitle)
+	if err != nil {
+		return nil, err
+	}
+
+	var body models.DocumentBody
+	if err := tx.Where("document_id = ? AND deleted_at IS NULL", source.ID).First(&body).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, content.ErrDocumentContentNotFound
+		}
+		return nil, err
+	}
+
+	if err := ensureDocumentQuotaWithinLimit(tx, userID, 1); err != nil {
+		return nil, err
+	}
+	if err := ensureWorkspaceStorageWithinLimit(tx, userID, int64(len(body.ContentJSON))); err != nil {
+		return nil, err
+	}
+
+	preferredImageTargetID := source.PreferredImageTargetID
+	if normalizePreferredImageTargetID(preferredImageTargetID) == "" {
+		preferredImageTargetID = DefaultPreferredImageTargetID
+	}
+
+	copied := &models.Document{
+		ID:                     uuid.New(),
+		OwnerUserID:            userID,
+		FolderID:               destinationFolderID,
+		Title:                  targetTitle,
+		Excerpt:                source.Excerpt,
+		ManualExcerpt:          source.ManualExcerpt,
+		PublicAccess:           PublicAccessPrivate,
+		DocumentType:           source.DocumentType,
+		PreferredImageTargetID: preferredImageTargetID,
+		EditorType:             source.EditorType,
+		CreatedBy:              userID,
+		UpdatedBy:              userID,
+	}
+	if copied.DocumentType == "" {
+		copied.DocumentType = "rich_text"
+	}
+	if copied.EditorType == "" {
+		copied.EditorType = "tiptap"
+	}
+
+	if err := tx.Create(copied).Error; err != nil {
+		return nil, err
+	}
+	if err := content.CreateInitialContent(tx, copied.ID, userID, body.ContentJSON); err != nil {
+		return nil, err
+	}
+
+	return copied, nil
+}
+
+func resolveFolderCopyName(tx *gorm.DB, userID uuid.UUID, parentID *uuid.UUID, sourceName string, requestedName string) (string, error) {
+	requestedName = strings.TrimSpace(requestedName)
+	if requestedName != "" {
+		return validateFolderCopyNameAvailable(tx, userID, parentID, requestedName)
+	}
+	return nextAvailableFolderCopyName(tx, userID, parentID, sourceName)
+}
+
+func resolveDocumentCopyTitle(tx *gorm.DB, userID uuid.UUID, folderID *uuid.UUID, sourceTitle string, requestedTitle string) (string, error) {
+	requestedTitle = strings.TrimSpace(requestedTitle)
+	if requestedTitle != "" {
+		return validateDocumentCopyTitleAvailable(tx, userID, folderID, requestedTitle)
+	}
+	return nextAvailableDocumentCopyTitle(tx, userID, folderID, sourceTitle)
+}
+
+func validateFolderCopyNameAvailable(tx *gorm.DB, userID uuid.UUID, parentID *uuid.UUID, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", ErrFolderNameRequired
+	}
+	if len(name) > 255 {
+		return "", ErrFolderNameTooLong
+	}
+	lowerName := strings.ToLower(name)
+	for _, reserved := range ReservedFolderNames {
+		if lowerName == strings.ToLower(reserved) {
+			return "", ErrReservedFolderName
+		}
+	}
+
+	var count int64
+	query := tx.Model(&models.Folder{}).Where("owner_user_id = ? AND name = ? AND deleted_at IS NULL", userID, name)
+	query = applyFolderParentScope(query, parentID)
+	if err := query.Count(&count).Error; err != nil {
+		return "", err
+	}
+	if count > 0 {
+		return "", ErrDuplicateFolderName
+	}
+	return name, nil
+}
+
+func validateDocumentCopyTitleAvailable(tx *gorm.DB, userID uuid.UUID, folderID *uuid.UUID, title string) (string, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "", ErrDocumentTitleRequired
+	}
+	if len(title) > 255 {
+		return "", ErrDocumentTitleTooLong
+	}
+
+	var count int64
+	query := tx.Model(&models.Document{}).Where("owner_user_id = ? AND title = ? AND deleted_at IS NULL", userID, title)
+	query = applyDocumentFolderScope(query, folderID)
+	if err := query.Count(&count).Error; err != nil {
+		return "", err
+	}
+	if count > 0 {
+		return "", ErrDuplicateDocumentTitle
+	}
+	return title, nil
+}
+
+func nextAvailableFolderCopyName(tx *gorm.DB, userID uuid.UUID, parentID *uuid.UUID, sourceName string) (string, error) {
+	return nextAvailableCopyName(func(candidate string) (string, error) {
+		return validateFolderCopyNameAvailable(tx, userID, parentID, candidate)
+	}, sourceName, ErrDuplicateFolderName)
+}
+
+func nextAvailableDocumentCopyTitle(tx *gorm.DB, userID uuid.UUID, folderID *uuid.UUID, sourceTitle string) (string, error) {
+	return nextAvailableCopyName(func(candidate string) (string, error) {
+		return validateDocumentCopyTitleAvailable(tx, userID, folderID, candidate)
+	}, sourceTitle, ErrDuplicateDocumentTitle)
+}
+
+func nextAvailableCopyName(validate func(string) (string, error), sourceName string, duplicateErr error) (string, error) {
+	base := strings.TrimSpace(sourceName)
+	if base == "" {
+		base = "未命名"
+	}
+
+	for attempt := 0; attempt < 1000; attempt++ {
+		candidate := buildCopyCandidateName(base, attempt)
+		normalized, err := validate(candidate)
+		if err == nil {
+			return normalized, nil
+		}
+		if errors.Is(err, duplicateErr) {
+			continue
+		}
+		return "", err
+	}
+	return "", duplicateErr
+}
+
+func buildCopyCandidateName(base string, attempt int) string {
+	suffix := " 副本"
+	if attempt > 0 {
+		suffix = fmt.Sprintf(" 副本 %d", attempt+1)
+	}
+
+	return truncateUTF8Bytes(strings.TrimSpace(base), 255-len(suffix)) + suffix
+}
+
+func truncateUTF8Bytes(value string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(value) <= maxBytes {
+		return value
+	}
+	for len(value) > maxBytes {
+		_, size := utf8.DecodeLastRuneInString(value)
+		if size <= 0 {
+			return ""
+		}
+		value = value[:len(value)-size]
+	}
+	return strings.TrimSpace(value)
 }
 
 // checkCircularDependency checks if moving sourceFolder into targetParent would create a cycle
