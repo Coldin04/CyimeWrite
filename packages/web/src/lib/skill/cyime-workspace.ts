@@ -1,6 +1,6 @@
 import { apiBaseUrl } from '$lib/config/api';
 
-export const skillSpecVersion = '2026-05-23.3';
+export const skillSpecVersion = '2026-05-23.6';
 
 export type SkillDocument = {
 	apiBaseUrl: string;
@@ -64,14 +64,14 @@ export function renderSkillMarkdown(document: SkillDocument): string {
 	return `---
 name: cyime-workspace
 author: Cyime
-description: This skill should be used when the user wants to read, create, organize, or update Cyime workspace documents, notes, drafts, folders, or persistent writing through Cyime integrations.
+description: Use this skill when the user wants to search, read, create, organize, or update Cyime workspace documents, notes, drafts, folders, or persistent writing.
 version: 0.1.0
 allowed-tools: WebFetch, Bash
 ---
 
 # Cyime Workspace
 
-Use this skill to operate the user's Cyime workspace. Prefer the MCP endpoint when the client supports MCP tools. Fall back to the REST Open API only when MCP is unavailable.
+Use this skill to operate the user's Cyime workspace through MCP-first Markdown tools. Prefer the MCP endpoint when the client supports MCP tools. Fall back to the REST Open API only when MCP is unavailable.
 
 ## Connection
 
@@ -115,34 +115,35 @@ Do not call Cyime when:
 ## Core Workflow
 
 1. Prefer MCP tool calls through \`${document.mcpUrl}\`.
-2. Locate the target with \`cyime_list_files\`. Use \`parentId\` to browse folders.
+2. Locate known folders with \`cyime_list_files\`. Use \`cyime_search_files\` first when the target name, folder, or document content is only partially known.
 3. Before editing an existing document, read it with \`cyime_read_markdown_document\`.
 4. Convert user instructions into Markdown before writing.
 5. Prefer incremental writes with \`cyime_patch_markdown_document\` when only part of a document changes.
-6. Use \`baseVersion\` on write requests. If the server returns a conflict, reread the document and retry carefully.
-7. Ask for confirmation before bulk copy/move operations or large rewrites.
-8. Ask for explicit confirmation before using \`cyime_delete_file\`.
+6. Ask for confirmation before bulk copy/move operations or large rewrites.
+7. Ask for explicit confirmation before using \`cyime_delete_file\`.
 
 ## MCP Tools
 
-- \`cyime_list_files\`
-- \`cyime_create_folder\`
-- \`cyime_create_markdown_document\`
-- \`cyime_read_markdown_document\`
-- \`cyime_update_markdown_document\`
-- \`cyime_patch_markdown_document\`
-- \`cyime_rename_file\`
-- \`cyime_move_file\`
-- \`cyime_copy_file\`
-- \`cyime_delete_file\`
+- \`cyime_search_files\`: search documents, folders, and media references by keyword. Use it when the target is not already known.
+- \`cyime_list_files\`: list direct child folders and documents under the root or a known folder.
+- \`cyime_create_folder\`: create a folder under the root or a parent folder.
+- \`cyime_create_markdown_document\`: create a document from Markdown.
+- \`cyime_read_markdown_document\`: read document content as Markdown.
+- \`cyime_update_markdown_document\`: replace a whole document with Markdown. Use carefully.
+- \`cyime_patch_markdown_document\`: apply focused Markdown edits. Prefer this for section-level changes.
+- \`cyime_rename_file\`: rename a folder or document.
+- \`cyime_move_file\`: move a folder or document to another folder or the root.
+- \`cyime_copy_file\`: copy a folder or document.
+- \`cyime_delete_file\`: move a folder or document to trash after explicit user confirmation.
 
-Business errors from \`tools/call\` are returned as a normal JSON-RPC result with \`isError: true\`. Check \`result.isError\` before assuming the operation succeeded.
+Business errors from \`tools/call\` are returned as a normal JSON-RPC result with \`result.isError: true\`. Check \`result.isError\` before assuming the operation succeeded. \`tools/list\` includes MCP tool annotations such as \`readOnlyHint\` and \`destructiveHint\` for clients that use them.
 
 MCP uses HTTP JSON-RPC. Send requests with \`POST ${document.mcpUrl}\` and \`Content-Type: application/json\`.
 
 Tool scopes:
 
 - \`cyime_list_files\`: \`workspace:read\`
+- \`cyime_search_files\`: \`workspace:read\`
 - \`cyime_create_folder\`: \`workspace:write\`
 - \`cyime_create_markdown_document\`: \`workspace:write\`, \`document:write\`
 - \`cyime_read_markdown_document\`: \`document:read\`
@@ -178,6 +179,7 @@ Use these endpoints only when MCP is unavailable:
 
 \`\`\`http
 GET /api/v1/open/files?parent_id=null&limit=50&type=all
+GET /api/v1/open/search?q=keyword&limit=10
 POST /api/v1/open/folders
 POST /api/v1/open/documents
 PATCH /api/v1/open/files/{id}
@@ -206,7 +208,7 @@ export function buildSkillManifest(document: SkillDocument) {
 		version: skillSpecVersion,
 		name: 'Cyime Workspace',
 		description:
-			'Read, create, organize, and update Cyime workspace documents and folders through MCP-first Markdown integrations.',
+			'Search, read, create, organize, and update Cyime workspace documents and folders through MCP-first Markdown integrations.',
 		mcpUrl: document.mcpUrl,
 		apiBaseUrl: document.openApiRootUrl,
 		restApiRootUrl: document.openApiRootUrl,
@@ -230,14 +232,16 @@ export function buildSkillManifest(document: SkillDocument) {
 			'Use Cyime proactively when the user works with Cyime documents, notes, folders, drafts, or persistent writing output.',
 			'Prefer the MCP endpoint and its tools when the client supports MCP.',
 			'Use the REST Open API only as a fallback when MCP is unavailable.',
+			'Use cyime_search_files when the target name, folder, or document content is only partially known.',
 			'Do not call Cyime when the user explicitly says not to use Cyime or external tools.',
 			'Read and write document content as Markdown.',
-			'Prefer incremental markdown patch operations. Use baseVersion and reread on version conflicts.',
+			'Prefer incremental markdown patch operations for focused edits.',
 			'Use cyime_delete_file only after explicit user confirmation. It moves files to trash and does not permanently delete them.',
 			'Suggest writing useful long-form or persistent output to Cyime when appropriate.'
 		],
 		capabilities: [
 			'cyime_list_files',
+			'cyime_search_files',
 			'cyime_create_folder',
 			'cyime_create_markdown_document',
 			'cyime_read_markdown_document',
@@ -264,14 +268,32 @@ export function buildOpenAPISpec(document: SkillDocument) {
 		paths: {
 			'/api/v1/open/files': {
 				get: withParameters(
-					operation('listFiles', 'List workspace folders and documents.', ['workspace:read'], null, fileListSchema()),
+					operation(
+						'listFiles',
+						'List direct child folders and documents under the root or a known folder.',
+						['workspace:read'],
+						null,
+						fileListSchema()
+					),
 					fileListParameters()
+				)
+			},
+			'/api/v1/open/search': {
+				get: withParameters(
+					operation(
+						'searchFiles',
+						'Search workspace documents, folders, and media references by keyword.',
+						['workspace:read'],
+						null,
+						searchResponseSchema()
+					),
+					searchParameters()
 				)
 			},
 			'/api/v1/open/folders': {
 				post: operation(
 					'createFolder',
-					'Create a folder.',
+					'Create a workspace folder.',
 					['workspace:write'],
 					createFolderSchema(),
 					fileOperationSchema()
@@ -280,7 +302,7 @@ export function buildOpenAPISpec(document: SkillDocument) {
 			'/api/v1/open/documents': {
 				post: operation(
 					'createMarkdownDocument',
-					'Create a Markdown document.',
+					'Create a document from Markdown.',
 					['workspace:write', 'document:write'],
 					createMarkdownDocumentSchema(),
 					createMarkdownDocumentResponseSchema()
@@ -290,7 +312,7 @@ export function buildOpenAPISpec(document: SkillDocument) {
 				patch: withParameters(
 					operation(
 						'renameFile',
-						'Rename a folder or document.',
+						'Rename a folder or document without changing content or location.',
 						['workspace:write'],
 						renameFileSchema(),
 						fileOperationSchema()
@@ -305,12 +327,18 @@ export function buildOpenAPISpec(document: SkillDocument) {
 						null,
 						deleteFileResponseSchema()
 					),
-					[pathIDParameter(), queryParameter('type', 'document', 'File type: folder or document.')]
+					[pathIDParameter(), queryParameter('type', 'document', 'File type: folder or document.', true)]
 				)
 			},
 			'/api/v1/open/files/{id}/move': {
 				put: withParameters(
-					operation('moveFile', 'Move a folder or document.', ['file:move'], moveFileSchema(), fileOperationSchema()),
+					operation(
+						'moveFile',
+						'Move a folder or document to another folder or the root.',
+						['file:move'],
+						moveFileSchema(),
+						fileOperationSchema()
+					),
 					[pathIDParameter()]
 				)
 			},
@@ -318,7 +346,7 @@ export function buildOpenAPISpec(document: SkillDocument) {
 				post: withParameters(
 					operation(
 						'copyFile',
-						'Copy a folder or document.',
+						'Copy a folder or document to another folder or the root.',
 						['file:copy', 'workspace:write'],
 						copyFileSchema(),
 						fileOperationSchema()
@@ -340,7 +368,7 @@ export function buildOpenAPISpec(document: SkillDocument) {
 				put: withParameters(
 					operation(
 						'updateMarkdownContent',
-						'Replace document content with Markdown.',
+						'Replace a whole document with Markdown.',
 						['document:write'],
 						updateMarkdownSchema(),
 						markdownUpdateResultSchema()
@@ -350,7 +378,7 @@ export function buildOpenAPISpec(document: SkillDocument) {
 				patch: withParameters(
 					operation(
 						'patchMarkdownContent',
-						'Apply incremental Markdown patch operations.',
+						'Apply focused Markdown patch operations.',
 						['document:read', 'document:write'],
 						patchMarkdownSchema(),
 						markdownUpdateResultSchema()
@@ -420,11 +448,11 @@ function pathIDParameter() {
 	};
 }
 
-function queryParameter(name: string, example: string, description: string) {
+function queryParameter(name: string, example: string, description: string, required = false) {
 	return {
 		name,
 		in: 'query',
-		required: false,
+		required,
 		description,
 		schema: { type: 'string' },
 		example
@@ -439,6 +467,13 @@ function fileListParameters() {
 		queryParameter('sort_by', 'updated_at', 'Sort field.'),
 		queryParameter('order', 'desc', 'Sort order: asc or desc.'),
 		queryParameter('type', 'all', 'Filter: all, folder, or document.')
+	];
+}
+
+function searchParameters() {
+	return [
+		queryParameter('q', 'keyword', 'Search keywords.', true),
+		queryParameter('limit', '10', 'Maximum results per category.')
 	];
 }
 
@@ -509,6 +544,64 @@ function fileListSchema() {
 	);
 }
 
+function searchResponseSchema() {
+	return objectSchema(
+		{
+			query: stringSchema('Normalized search query.'),
+			documents: { type: 'array', items: searchDocumentItemSchema() },
+			folders: { type: 'array', items: searchFolderItemSchema() },
+			media: { type: 'array', items: searchMediaItemSchema() },
+			total: { type: 'integer' }
+		},
+		['query', 'documents', 'folders', 'media', 'total']
+	);
+}
+
+function searchDocumentItemSchema() {
+	return objectSchema(
+		{
+			id: stringSchema('Document UUID.'),
+			title: stringSchema('Document title.'),
+			excerpt: stringSchema('Matched excerpt.'),
+			documentType: stringSchema('Document type.'),
+			preferredImageTargetId: stringSchema('Preferred image target ID.'),
+			myRole: stringSchema('Current user role.'),
+			publicAccess: stringSchema('Public access mode.'),
+			publicUrl: stringSchema('Public view URL.'),
+			folderId: nullableUUIDSchema('Parent folder ID.'),
+			updatedAt: stringSchema('ISO timestamp.')
+		},
+		['id', 'title', 'excerpt', 'documentType', 'preferredImageTargetId', 'myRole', 'publicAccess', 'publicUrl', 'updatedAt']
+	);
+}
+
+function searchFolderItemSchema() {
+	return objectSchema(
+		{
+			id: stringSchema('Folder UUID.'),
+			name: stringSchema('Folder name.'),
+			parentId: nullableUUIDSchema('Parent folder ID.'),
+			updatedAt: stringSchema('ISO timestamp.')
+		},
+		['id', 'name', 'updatedAt']
+	);
+}
+
+function searchMediaItemSchema() {
+	return objectSchema(
+		{
+			id: stringSchema('Media asset UUID.'),
+			filename: stringSchema('Filename.'),
+			kind: stringSchema('Media kind.'),
+			mimeType: stringSchema('MIME type.'),
+			documentId: nullableUUIDSchema('Related document ID.'),
+			documentTitle: { type: ['string', 'null'], description: 'Related document title.' },
+			updatedAt: stringSchema('ISO timestamp.')
+		},
+		['id', 'filename', 'kind', 'mimeType', 'updatedAt']
+	);
+}
+
 function fileOperationSchema() {
 	return objectSchema(
 		{
@@ -550,11 +643,10 @@ function createMarkdownDocumentResponseSchema() {
 			type: { type: 'string', enum: ['document'] },
 			title: stringSchema('Document title.'),
 			folderId: nullableUUIDSchema('Parent folder ID.'),
-			version: { type: 'integer' },
 			createdAt: stringSchema('ISO timestamp.'),
 			updatedAt: stringSchema('ISO timestamp.')
 		},
-		['id', 'type', 'title', 'version', 'createdAt', 'updatedAt']
+		['id', 'type', 'title', 'createdAt', 'updatedAt']
 	);
 }
 
@@ -604,10 +696,9 @@ function markdownContentSchema() {
 		{
 			format: { type: 'string', enum: ['markdown'] },
 			content: stringSchema('Markdown content.'),
-			version: { type: 'integer' },
 			updatedAt: stringSchema('ISO timestamp.')
 		},
-		['format', 'content', 'version', 'updatedAt']
+		['format', 'content', 'updatedAt']
 	);
 }
 
@@ -615,8 +706,7 @@ function updateMarkdownSchema() {
 	return objectSchema(
 		{
 			format: { type: 'string', enum: ['markdown'] },
-			content: stringSchema('Full Markdown content.'),
-			baseVersion: { type: ['integer', 'null'] }
+			content: stringSchema('Full Markdown content.')
 		},
 		['format', 'content']
 	);
@@ -626,7 +716,6 @@ function patchMarkdownSchema() {
 	return objectSchema(
 		{
 			format: { type: 'string', enum: ['markdown'] },
-			baseVersion: { type: ['integer', 'null'] },
 			operations: {
 				type: 'array',
 				items: objectSchema(
@@ -652,9 +741,8 @@ function markdownUpdateResultSchema() {
 	return objectSchema(
 		{
 			success: { type: 'boolean' },
-			version: { type: 'integer' },
 			updatedAt: stringSchema('ISO timestamp.')
 		},
-		['success', 'version', 'updatedAt']
+		['success', 'updatedAt']
 	);
 }

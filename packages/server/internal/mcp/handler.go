@@ -82,6 +82,7 @@ type toolDefinition struct {
 	Name           string
 	Description    string
 	RequiredScopes []string
+	Annotations    map[string]any
 	InputSchema    map[string]any
 	Call           func(userID uuid.UUID, arguments json.RawMessage) (any, error)
 }
@@ -90,6 +91,13 @@ type mcpTool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	Annotations map[string]any `json:"annotations,omitempty"`
+}
+
+type searchFilesArgs struct {
+	Query string `json:"query"`
+	Q     string `json:"q"`
+	Limit int    `json:"limit"`
 }
 
 type listFilesArgs struct {
@@ -124,19 +132,17 @@ type documentIDArgs struct {
 }
 
 type updateDocumentArgs struct {
-	ID          string `json:"id"`
-	DocumentID  string `json:"documentId"`
-	Format      string `json:"format"`
-	Content     string `json:"content"`
-	BaseVersion *int64 `json:"baseVersion"`
+	ID         string `json:"id"`
+	DocumentID string `json:"documentId"`
+	Format     string `json:"format"`
+	Content    string `json:"content"`
 }
 
 type patchDocumentArgs struct {
-	ID          string              `json:"id"`
-	DocumentID  string              `json:"documentId"`
-	Format      string              `json:"format"`
-	BaseVersion *int64              `json:"baseVersion"`
-	Operations  []ai.PatchOperation `json:"operations"`
+	ID         string              `json:"id"`
+	DocumentID string              `json:"documentId"`
+	Format     string              `json:"format"`
+	Operations []ai.PatchOperation `json:"operations"`
 }
 
 type fileArgs struct {
@@ -169,11 +175,24 @@ type deleteFileArgs struct {
 
 var tools = []toolDefinition{
 	{
-		Name:           "cyime_list_files",
-		Description:    "List Cyime workspace folders and documents.",
+		Name:           "cyime_search_files",
+		Description:    "Search Cyime documents, folders, and media references by keywords. Use this before listing when the target is not already known.",
 		RequiredScopes: []string{apitoken.ScopeWorkspaceRead},
+		Annotations:    readOnlyAnnotations(),
 		InputSchema: objectSchema(map[string]any{
-			"parentId": nullableUUIDSchema("Folder UUID, empty, or null for the workspace root."),
+			"query": stringSchema("Search keywords. Matches document titles, excerpts, body text, folder names, and media metadata."),
+			"q":     stringSchema("Alias for query."),
+			"limit": integerSchema("Maximum results per category."),
+		}, []string{"query"}),
+		Call: callSearchFiles,
+	},
+	{
+		Name:           "cyime_list_files",
+		Description:    "List direct child folders and documents in the workspace root or a known folder. Use this for browsing folder structure.",
+		RequiredScopes: []string{apitoken.ScopeWorkspaceRead},
+		Annotations:    readOnlyAnnotations(),
+		InputSchema: objectSchema(map[string]any{
+			"parentId": nullableUUIDSchema("Folder UUID or null for the workspace root."),
 			"limit":    integerSchema("Maximum number of items."),
 			"offset":   integerSchema("Pagination offset."),
 			"sortBy":   enumSchema("Sort field.", []string{"name", "title", "created_at", "updated_at"}),
@@ -184,8 +203,9 @@ var tools = []toolDefinition{
 	},
 	{
 		Name:           "cyime_create_folder",
-		Description:    "Create a Cyime workspace folder.",
+		Description:    "Create a folder in the Cyime workspace root or under a parent folder.",
 		RequiredScopes: []string{apitoken.ScopeWorkspaceWrite},
+		Annotations:    writeAnnotations(false),
 		InputSchema: objectSchema(map[string]any{
 			"name":        stringSchema("Folder name."),
 			"description": nullableStringSchema("Optional folder description."),
@@ -195,8 +215,9 @@ var tools = []toolDefinition{
 	},
 	{
 		Name:           "cyime_create_markdown_document",
-		Description:    "Create a Markdown document in Cyime.",
+		Description:    "Create a Cyime document from Markdown. The server converts Markdown to the editor's internal Tiptap JSON format.",
 		RequiredScopes: []string{apitoken.ScopeWorkspaceWrite, apitoken.ScopeDocumentWrite},
+		Annotations:    writeAnnotations(false),
 		InputSchema: objectSchema(map[string]any{
 			"title":                  stringSchema("Document title."),
 			"format":                 enumSchema("Content format. Use markdown.", []string{"markdown"}),
@@ -210,6 +231,7 @@ var tools = []toolDefinition{
 		Name:           "cyime_read_markdown_document",
 		Description:    "Read a Cyime document as Markdown.",
 		RequiredScopes: []string{apitoken.ScopeDocumentRead},
+		Annotations:    readOnlyAnnotations(),
 		InputSchema: objectSchema(map[string]any{
 			"id":     uuidSchema("Document UUID."),
 			"format": enumSchema("Content format. Use markdown.", []string{"markdown"}),
@@ -218,24 +240,24 @@ var tools = []toolDefinition{
 	},
 	{
 		Name:           "cyime_update_markdown_document",
-		Description:    "Replace a Cyime document with Markdown content.",
+		Description:    "Replace an entire Cyime document with Markdown. Prefer patching for focused edits.",
 		RequiredScopes: []string{apitoken.ScopeDocumentWrite},
+		Annotations:    writeAnnotations(true),
 		InputSchema: objectSchema(map[string]any{
-			"id":          uuidSchema("Document UUID."),
-			"format":      enumSchema("Content format. Use markdown.", []string{"markdown"}),
-			"content":     stringSchema("Full Markdown content."),
-			"baseVersion": nullableIntegerSchema("Expected current document content version."),
+			"id":      uuidSchema("Document UUID."),
+			"format":  enumSchema("Content format. Use markdown.", []string{"markdown"}),
+			"content": stringSchema("Full Markdown content."),
 		}, []string{"id", "format", "content"}),
 		Call: callUpdateMarkdownDocument,
 	},
 	{
 		Name:           "cyime_patch_markdown_document",
-		Description:    "Apply incremental Markdown patch operations to a Cyime document.",
+		Description:    "Apply focused Markdown edits to an existing Cyime document. Prefer this over full replacement for section-level changes.",
 		RequiredScopes: []string{apitoken.ScopeDocumentRead, apitoken.ScopeDocumentWrite},
+		Annotations:    writeAnnotations(true),
 		InputSchema: objectSchema(map[string]any{
-			"id":          uuidSchema("Document UUID."),
-			"format":      enumSchema("Content format. Use markdown.", []string{"markdown"}),
-			"baseVersion": nullableIntegerSchema("Expected current document content version."),
+			"id":     uuidSchema("Document UUID."),
+			"format": enumSchema("Content format. Use markdown.", []string{"markdown"}),
 			"operations": objectArraySchema("Patch operations.", map[string]any{
 				"type":    enumSchema("Patch operation.", []string{"append", "prepend", "replace", "insert_after", "insert_before"}),
 				"target":  stringSchema("Optional target, for example section."),
@@ -248,8 +270,9 @@ var tools = []toolDefinition{
 	},
 	{
 		Name:           "cyime_rename_file",
-		Description:    "Rename a Cyime folder or document.",
+		Description:    "Rename a Cyime folder or document without changing its content or location.",
 		RequiredScopes: []string{apitoken.ScopeWorkspaceWrite},
+		Annotations:    writeAnnotations(false),
 		InputSchema: objectSchema(map[string]any{
 			"id":   uuidSchema("File or folder UUID."),
 			"type": enumSchema("File type.", []string{"folder", "document"}),
@@ -259,8 +282,9 @@ var tools = []toolDefinition{
 	},
 	{
 		Name:           "cyime_move_file",
-		Description:    "Move a Cyime folder or document.",
+		Description:    "Move a Cyime folder or document to another folder or back to the workspace root.",
 		RequiredScopes: []string{apitoken.ScopeFileMove},
+		Annotations:    writeAnnotations(false),
 		InputSchema: objectSchema(map[string]any{
 			"id":                  uuidSchema("File or folder UUID."),
 			"type":                enumSchema("File type.", []string{"folder", "document"}),
@@ -270,8 +294,9 @@ var tools = []toolDefinition{
 	},
 	{
 		Name:           "cyime_copy_file",
-		Description:    "Copy a Cyime folder or document.",
+		Description:    "Copy a Cyime folder or document to another folder or the workspace root.",
 		RequiredScopes: []string{apitoken.ScopeFileCopy, apitoken.ScopeWorkspaceWrite},
+		Annotations:    writeAnnotations(false),
 		InputSchema: objectSchema(map[string]any{
 			"id":                  uuidSchema("File or folder UUID."),
 			"type":                enumSchema("File type.", []string{"folder", "document"}),
@@ -282,8 +307,9 @@ var tools = []toolDefinition{
 	},
 	{
 		Name:           "cyime_delete_file",
-		Description:    "Move a Cyime folder or document to trash. Requires explicit user confirmation before use.",
+		Description:    "Move a Cyime folder or document to trash. This is destructive and requires explicit user confirmation before use.",
 		RequiredScopes: []string{apitoken.ScopeFileDelete},
+		Annotations:    writeAnnotations(true),
 		InputSchema: objectSchema(map[string]any{
 			"id":   uuidSchema("File or folder UUID."),
 			"type": enumSchema("File type.", []string{"folder", "document"}),
@@ -320,6 +346,24 @@ func Handle(c *fiber.Ctx) error {
 	}
 }
 
+func readOnlyAnnotations() map[string]any {
+	return map[string]any{
+		"readOnlyHint":    true,
+		"destructiveHint": false,
+		"idempotentHint":  true,
+		"openWorldHint":   false,
+	}
+}
+
+func writeAnnotations(destructive bool) map[string]any {
+	return map[string]any{
+		"readOnlyHint":    false,
+		"destructiveHint": destructive,
+		"idempotentHint":  false,
+		"openWorldHint":   false,
+	}
+}
+
 func handleInitialize(c *fiber.Ctx, req rpcRequest) error {
 	var params initializeParams
 	if err := decodeParams(req.Params, &params); err != nil {
@@ -339,7 +383,7 @@ func handleInitialize(c *fiber.Ctx, req rpcRequest) error {
 			},
 		},
 		ServerInfo:   serverInfo{Name: serverName, Version: serverVersion},
-		Instructions: "Use Cyime tools when the user wants to read, create, organize, or update Cyime workspace documents and folders. Keep document content in Markdown.",
+		Instructions: "Use Cyime tools when the user wants to search, read, create, organize, or update Cyime workspace content. Prefer search for unknown targets, read documents before editing, write document content as Markdown, and only delete after explicit confirmation.",
 	}))
 }
 
@@ -393,6 +437,22 @@ func callListFiles(userID uuid.UUID, raw json.RawMessage) (any, error) {
 		sortBy = strings.TrimSpace(args.SortBySnake)
 	}
 	return workspace.GetFiles(userID, parentID, limit, args.Offset, sortBy, args.Order, normalizeListType(args.Type))
+}
+
+func callSearchFiles(userID uuid.UUID, raw json.RawMessage) (any, error) {
+	var args searchFilesArgs
+	if err := decodeParams(raw, &args); err != nil {
+		return nil, err
+	}
+	query := firstNonEmpty(args.Query, args.Q)
+	if strings.TrimSpace(query) == "" {
+		return nil, errors.New("query is required")
+	}
+	limit := args.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	return workspace.SearchWorkspace(userID, query, limit)
 }
 
 func callCreateFolder(userID uuid.UUID, raw json.RawMessage) (any, error) {
@@ -469,7 +529,7 @@ func callUpdateMarkdownDocument(userID uuid.UUID, raw json.RawMessage) (any, err
 	if err != nil {
 		return nil, err
 	}
-	return ai.UpdateMarkdownContent(userID, documentID, args.Content, args.BaseVersion)
+	return ai.UpdateMarkdownContent(userID, documentID, args.Content)
 }
 
 func callPatchMarkdownDocument(userID uuid.UUID, raw json.RawMessage) (any, error) {
@@ -487,7 +547,7 @@ func callPatchMarkdownDocument(userID uuid.UUID, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	return ai.PatchMarkdownContent(userID, documentID, args.Operations, args.BaseVersion)
+	return ai.PatchMarkdownContent(userID, documentID, args.Operations)
 }
 
 func callRenameFile(userID uuid.UUID, raw json.RawMessage) (any, error) {
@@ -586,6 +646,7 @@ func listTools() []mcpTool {
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
+			Annotations: tool.Annotations,
 		})
 	}
 	return items
@@ -790,10 +851,6 @@ func nullableUUIDSchema(description string) map[string]any {
 
 func integerSchema(description string) map[string]any {
 	return map[string]any{"type": "integer", "description": description}
-}
-
-func nullableIntegerSchema(description string) map[string]any {
-	return map[string]any{"type": []string{"integer", "null"}, "description": description}
 }
 
 func enumSchema(description string, values []string) map[string]any {

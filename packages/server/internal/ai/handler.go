@@ -16,15 +16,13 @@ type ErrorResponse struct {
 }
 
 type UpdateMarkdownRequest struct {
-	Format      string `json:"format"`
-	Content     string `json:"content"`
-	BaseVersion *int64 `json:"baseVersion"`
+	Format  string `json:"format"`
+	Content string `json:"content"`
 }
 
 type PatchMarkdownRequest struct {
-	Format      string           `json:"format"`
-	BaseVersion *int64           `json:"baseVersion"`
-	Operations  []PatchOperation `json:"operations"`
+	Format     string           `json:"format"`
+	Operations []PatchOperation `json:"operations"`
 }
 
 type CreateMarkdownDocumentRequest struct {
@@ -97,7 +95,7 @@ func UpdateDocumentMarkdownHandler(c *fiber.Ctx) error {
 		return badRequest(c, err)
 	}
 
-	result, err := UpdateMarkdownContent(userID, documentID, req.Content, req.BaseVersion)
+	result, err := UpdateMarkdownContent(userID, documentID, req.Content)
 	if err != nil {
 		return contentError(c, err)
 	}
@@ -121,7 +119,7 @@ func PatchDocumentMarkdownHandler(c *fiber.Ctx) error {
 		return badRequest(c, errors.New("at least one patch operation is required"))
 	}
 
-	result, err := PatchMarkdownContent(userID, documentID, req.Operations, req.BaseVersion)
+	result, err := PatchMarkdownContent(userID, documentID, req.Operations)
 	if err != nil {
 		return contentError(c, err)
 	}

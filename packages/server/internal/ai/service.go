@@ -17,19 +17,17 @@ import (
 
 var (
 	ErrUnsupportedFormat = errors.New("unsupported content format")
-	ErrVersionConflict   = errors.New("document content version conflict")
+	ErrVersionConflict   = errors.New("document changed while applying update")
 )
 
 type MarkdownContent struct {
 	Format    string    `json:"format"`
 	Content   string    `json:"content"`
-	Version   int64     `json:"version"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type MarkdownUpdateResult struct {
 	Success   bool      `json:"success"`
-	Version   int64     `json:"version"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
@@ -45,12 +43,30 @@ type CreateMarkdownDocumentResult struct {
 	Type      string     `json:"type"`
 	Title     string     `json:"title"`
 	FolderID  *uuid.UUID `json:"folderId,omitempty"`
-	Version   int64      `json:"version"`
 	CreatedAt time.Time  `json:"createdAt"`
 	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
+type markdownContentSnapshot struct {
+	Format    string
+	Content   string
+	Version   int64
+	UpdatedAt time.Time
+}
+
 func GetMarkdownContent(userID uuid.UUID, documentID uuid.UUID) (*MarkdownContent, error) {
+	snapshot, err := getMarkdownContentSnapshot(userID, documentID)
+	if err != nil {
+		return nil, err
+	}
+	return &MarkdownContent{
+		Format:    snapshot.Format,
+		Content:   snapshot.Content,
+		UpdatedAt: snapshot.UpdatedAt,
+	}, nil
+}
+
+func getMarkdownContentSnapshot(userID uuid.UUID, documentID uuid.UUID) (*markdownContentSnapshot, error) {
 	result, err := content.GetContent(userID, documentID)
 	if err != nil {
 		return nil, err
@@ -59,7 +75,7 @@ func GetMarkdownContent(userID uuid.UUID, documentID uuid.UUID) (*MarkdownConten
 	if err != nil {
 		return nil, err
 	}
-	return &MarkdownContent{
+	return &markdownContentSnapshot{
 		Format:    "markdown",
 		Content:   markdown,
 		Version:   result.ContentVersion,
@@ -67,7 +83,11 @@ func GetMarkdownContent(userID uuid.UUID, documentID uuid.UUID) (*MarkdownConten
 	}, nil
 }
 
-func UpdateMarkdownContent(userID uuid.UUID, documentID uuid.UUID, markdown string, baseVersion *int64) (*MarkdownUpdateResult, error) {
+func UpdateMarkdownContent(userID uuid.UUID, documentID uuid.UUID, markdown string) (*MarkdownUpdateResult, error) {
+	return updateMarkdownContent(userID, documentID, markdown, nil)
+}
+
+func updateMarkdownContent(userID uuid.UUID, documentID uuid.UUID, markdown string, expectedVersion *int64) (*MarkdownUpdateResult, error) {
 	contentJSON, err := markdownToContentJSON(markdown)
 	if err != nil {
 		return nil, err
@@ -80,7 +100,7 @@ func UpdateMarkdownContent(userID uuid.UUID, documentID uuid.UUID, markdown stri
 			return content.ErrDocumentNotFoundOrUnauthorized
 		}
 
-		if baseVersion != nil {
+		if expectedVersion != nil {
 			var body models.DocumentBody
 			if err := tx.Where("document_id = ?", documentID).First(&body).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -88,7 +108,7 @@ func UpdateMarkdownContent(userID uuid.UUID, documentID uuid.UUID, markdown stri
 				}
 				return err
 			}
-			if body.ContentVersion != *baseVersion {
+			if body.ContentVersion != *expectedVersion {
 				return ErrVersionConflict
 			}
 		}
@@ -101,25 +121,21 @@ func UpdateMarkdownContent(userID uuid.UUID, documentID uuid.UUID, markdown stri
 	}
 	return &MarkdownUpdateResult{
 		Success:   result.Success,
-		Version:   result.ContentVersion,
 		UpdatedAt: result.UpdatedAt,
 	}, nil
 }
 
-func PatchMarkdownContent(userID uuid.UUID, documentID uuid.UUID, operations []PatchOperation, baseVersion *int64) (*MarkdownUpdateResult, error) {
-	current, err := GetMarkdownContent(userID, documentID)
+func PatchMarkdownContent(userID uuid.UUID, documentID uuid.UUID, operations []PatchOperation) (*MarkdownUpdateResult, error) {
+	current, err := getMarkdownContentSnapshot(userID, documentID)
 	if err != nil {
 		return nil, err
-	}
-	if baseVersion != nil && current.Version != *baseVersion {
-		return nil, ErrVersionConflict
 	}
 
 	patched, err := applyMarkdownPatch(current.Content, operations)
 	if err != nil {
 		return nil, err
 	}
-	return UpdateMarkdownContent(userID, documentID, patched, &current.Version)
+	return updateMarkdownContent(userID, documentID, patched, &current.Version)
 }
 
 func CreateMarkdownDocument(userID uuid.UUID, input CreateMarkdownDocumentInput) (*CreateMarkdownDocumentResult, error) {
@@ -139,17 +155,11 @@ func CreateMarkdownDocument(userID uuid.UUID, input CreateMarkdownDocumentInput)
 		return nil, err
 	}
 
-	var body models.DocumentBody
-	if err := database.DB.Select("content_version").Where("document_id = ?", document.ID).First(&body).Error; err != nil {
-		return nil, err
-	}
-
 	return &CreateMarkdownDocumentResult{
 		ID:        document.ID,
 		Type:      "document",
 		Title:     document.Title,
 		FolderID:  document.FolderID,
-		Version:   body.ContentVersion,
 		CreatedAt: document.CreatedAt,
 		UpdatedAt: document.UpdatedAt,
 	}, nil

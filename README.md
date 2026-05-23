@@ -10,6 +10,13 @@
 
 ---
 
+## 功能亮点
+
+- 轻量云端写作：在线编辑、云端同步、公开分享和多端访问。
+- 媒体库与图床工作流：集中管理图片与附件，支持从媒体反向定位引用文档。
+- 实时协作可选：按部署需要启用或关闭协作、共享、presence 与持久化链路。
+- AI 融合支持：通过 Skill、MCP 与 REST Open API 接入 AI 客户端，让授权 AI 可以搜索、读取、整理和写入工作区文档，协助管理文章资产。
+
 ## 如何部署
 
 当前推荐的部署方式是前后端分离：
@@ -30,6 +37,8 @@
 
 - `PUBLIC_API_BASE_URL=https://你的后端域名`
 
+这是前端访问 Go API 的基础地址，前端所有 `/api/v1/...` 请求都会拼接到这个 origin。生产部署时必须填写浏览器可访问的后端公网地址，不要填容器内网地址或仅服务器本机可访问的地址。
+
 可选公开环境变量：
 
 - `PUBLIC_AVATAR_MAX_BYTES=2097152`
@@ -48,6 +57,22 @@ Cloudflare Pages 构建如果涉及 Node 内建模块兼容，仓库内已经提
 这些 `PUBLIC_*` 变量统一按运行时公开变量处理，适合在 Pages / EdgeOne 的项目环境变量里配置。
 
 更完整的平台配置说明请参阅 [Web 部署说明](docs/web_deployment.md)。
+
+### 前后端通信配置
+
+前后端分离部署时，需要同时配置浏览器访问链路、后端跨域白名单和登录回调地址：
+
+- `packages/web`：`PUBLIC_API_BASE_URL=https://你的后端域名`
+- `packages/server`：`CORS_ALLOWED_ORIGINS=https://你的前端域名`
+- `packages/server`：`FRONTEND_CALLBACK_URL=https://你的前端域名/auth/callback`
+- `packages/server`：`API_BASE_URL=https://你的后端域名`
+
+这四个地址分别解决“前端请求后端”“后端允许前端跨域请求”“登录后回到前端”“后端生成自己的公网 URL”。如果使用 AI 融合能力里的 Markdown 转换服务，还需要额外配置后端到前端的内部调用：
+
+- `MARKDOWN_CONVERTER_URL=https://你的前端域名`
+- `MARKDOWN_CONVERTER_TOKEN=同一把内部共享密钥`
+
+`MARKDOWN_CONVERTER_TOKEN` 需要同时配置到 `packages/server` 与 `packages/web` 的运行环境，用于保护 `/markdown/convert` 内部路由。它不是用户中心创建的 API Token，也不应提供给 AI 客户端。
 
 ### Server 与 Realtime
 
@@ -85,11 +110,11 @@ Cyime 提供面向 AI 客户端和外部工具的工作区集成能力：
 
 推荐优先使用 MCP；当客户端不支持 MCP 时，再使用 REST Open API。MCP 当前通过 HTTP JSON-RPC 暴露，客户端应以 `POST /api/v1/mcp` 调用。
 
-用户中心可以创建 Cyime API Token，用于 Cherry Studio、LobeChat、脚本或其他外部工具访问 MCP/Open API。这个 token 与站点登录会话无关，应按需要授予最小权限。
+用户中心可以创建 Cyime API Token，用于支持 HTTP MCP 的客户端、脚本或其他外部工具访问 MCP/Open API。这个 token 与站点登录会话无关，应按需要授予最小权限。
 
 常用权限范围：
 
-- `workspace:read`：读取文件/文件夹列表。
+- `workspace:read`：读取文件/文件夹列表和搜索结果。
 - `workspace:write`：创建文件夹、重命名、创建文档所需的工作区写权限。
 - `document:read`：读取文档 Markdown 内容。
 - `document:write`：创建或更新文档 Markdown 内容。
@@ -97,7 +122,7 @@ Cyime 提供面向 AI 客户端和外部工具的工作区集成能力：
 - `file:copy`：复制文件或文件夹。
 - `file:delete`：移动文件或文件夹到回收站。该权限具有破坏性，应仅在明确需要时开启。
 
-Cherry Studio / LobeChat 这类 MCP 客户端可使用类似配置导入：
+支持 HTTP MCP 的客户端可使用类似配置导入：
 
 ```json
 {
@@ -124,6 +149,8 @@ https://你的前端域名/skill.md
 ```
 
 Skill 会声明 MCP 优先、REST Open API 兜底，并要求客户端把 API Token 配置为 `CYIME_API_TOKEN` 这类 secret 变量。不要把 token 明文写入 `skill.md`、`manifest.json`、`openapi.json` 或聊天消息。
+
+MCP 当前包含 `cyime_search_files`、`cyime_list_files`、创建/读取/更新/增量更新 Markdown 文档、重命名、移动、复制和软删除工具。`tools/list` 会返回 `readOnlyHint`、`destructiveHint` 等 MCP annotations，方便客户端区分只读工具和需要确认的破坏性工具。
 
 #### Markdown 转换服务
 

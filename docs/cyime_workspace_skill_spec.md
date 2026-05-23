@@ -4,11 +4,12 @@ This spec defines how clients should use the Cyime Workspace skill.
 
 ## Purpose
 
-The skill lets a client work with a user's Cyime workspace when the user wants help with documents, notes, drafts, folders, or saved writing.
+The skill lets a client search, read, create, organize, and update a user's Cyime workspace when the user wants help with documents, notes, drafts, folders, or saved writing.
 
 Supported capabilities:
 
 - List folders and documents.
+- Search documents, folders, and media references.
 - Create folders.
 - Create documents.
 - Read document content.
@@ -69,20 +70,22 @@ Preferred MCP endpoint:
 
 MCP tools:
 
-- `cyime_list_files`
-- `cyime_create_folder`
-- `cyime_create_markdown_document`
-- `cyime_read_markdown_document`
-- `cyime_update_markdown_document`
-- `cyime_patch_markdown_document`
-- `cyime_rename_file`
-- `cyime_move_file`
-- `cyime_copy_file`
-- `cyime_delete_file`
+- `cyime_search_files`: search documents, folders, and media references by keyword.
+- `cyime_list_files`: list direct child folders and documents under the root or a known folder.
+- `cyime_create_folder`: create a workspace folder.
+- `cyime_create_markdown_document`: create a document from Markdown.
+- `cyime_read_markdown_document`: read document content as Markdown.
+- `cyime_update_markdown_document`: replace a whole document with Markdown.
+- `cyime_patch_markdown_document`: apply focused Markdown patch operations.
+- `cyime_rename_file`: rename a folder or document.
+- `cyime_move_file`: move a folder or document.
+- `cyime_copy_file`: copy a folder or document.
+- `cyime_delete_file`: move a folder or document to trash after explicit user confirmation.
 
 REST fallback endpoints:
 
 - `GET /api/v1/open/files`
+- `GET /api/v1/open/search?q=keyword&limit=10`
 - `POST /api/v1/open/folders`
 - `POST /api/v1/open/documents`
 - `PATCH /api/v1/open/files/{id}`
@@ -119,11 +122,14 @@ Clients should prefer MCP when available. Cyime exposes an HTTP JSON-RPC MCP end
 - `tools/list`
 - `tools/call`
 
-Business errors from `tools/call` are returned as a normal JSON-RPC result with `result.isError: true`. Clients must inspect `result.isError` before assuming a tool call succeeded. Protocol errors such as invalid JSON-RPC requests or insufficient token scope are returned as JSON-RPC errors.
+Business errors from `tools/call` are returned as a normal JSON-RPC result with `result.isError: true`. Clients must inspect `result.isError` before assuming a tool call succeeded. Protocol errors such as invalid JSON-RPC requests or insufficient token scope are returned as JSON-RPC errors. `tools/list` includes MCP tool annotations such as `readOnlyHint` and `destructiveHint` for clients that use them.
+
+For target discovery, use `cyime_search_files` when the user provides a partial title, content clue, folder name, or media reference. Use `cyime_list_files` when browsing a known folder hierarchy.
 
 Tool scopes:
 
 - `cyime_list_files`: `workspace:read`
+- `cyime_search_files`: `workspace:read`
 - `cyime_create_folder`: `workspace:write`
 - `cyime_create_markdown_document`: `workspace:write`, `document:write`
 - `cyime_read_markdown_document`: `document:read`
@@ -161,8 +167,7 @@ Recommended read response:
 ```json
 {
   "format": "markdown",
-  "content": "# Title\n\nDocument body...",
-  "version": 12
+  "content": "# Title\n\nDocument body..."
 }
 ```
 
@@ -171,8 +176,7 @@ Recommended full update request:
 ```json
 {
   "format": "markdown",
-  "content": "# Title\n\nUpdated body...",
-  "baseVersion": 12
+  "content": "# Title\n\nUpdated body..."
 }
 ```
 
@@ -185,7 +189,6 @@ Recommended patch request:
 ```json
 {
   "format": "markdown",
-  "baseVersion": 12,
   "operations": [
     {
       "type": "replace",
@@ -204,8 +207,6 @@ Allowed operation types:
 - `replace`
 - `insert_after`
 - `insert_before`
-
-If the server returns a version conflict, reread the document before retrying.
 
 ## Safety Rules
 

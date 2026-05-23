@@ -105,8 +105,14 @@ func TestHandleToolsList(t *testing.T) {
 	if !strings.Contains(string(raw), "cyime_list_files") {
 		t.Fatalf("tools/list did not include cyime_list_files: %s", raw)
 	}
+	if !strings.Contains(string(raw), "cyime_search_files") {
+		t.Fatalf("tools/list did not include cyime_search_files: %s", raw)
+	}
 	if !strings.Contains(string(raw), "cyime_delete_file") {
 		t.Fatalf("tools/list did not include cyime_delete_file: %s", raw)
+	}
+	if !strings.Contains(string(raw), "readOnlyHint") {
+		t.Fatalf("tools/list did not include tool annotations: %s", raw)
 	}
 }
 

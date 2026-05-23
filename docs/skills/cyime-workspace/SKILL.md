@@ -1,14 +1,14 @@
 ---
 name: cyime-workspace
 author: Cyime
-description: This skill should be used when the user wants to read, create, organize, or update Cyime workspace documents, notes, drafts, folders, or persistent writing through Cyime integrations.
+description: Use this skill when the user wants to search, read, create, organize, or update Cyime workspace documents, notes, drafts, folders, or persistent writing.
 version: 0.1.0
 allowed-tools: WebFetch, Bash
 ---
 
 # Cyime Workspace
 
-Use this skill to operate the user's Cyime workspace. Prefer MCP tools when the client supports MCP. Fall back to the REST Open API only when MCP is unavailable.
+Use this skill to operate the user's Cyime workspace through MCP-first Markdown tools. Prefer MCP tools when the client supports MCP. Fall back to the REST Open API only when MCP is unavailable.
 
 ## Connection
 
@@ -54,34 +54,35 @@ Do not call Cyime when:
 ## Core Workflow
 
 1. Prefer MCP tool calls through `/api/v1/mcp`.
-2. Locate the target with `cyime_list_files`. Use `parentId` to browse folders.
+2. Locate known folders with `cyime_list_files`. Use `cyime_search_files` first when the target name, folder, or document content is only partially known.
 3. Before editing an existing document, read it with `cyime_read_markdown_document`.
 4. Convert user instructions into Markdown before writing.
 5. Prefer incremental writes with `cyime_patch_markdown_document` when only part of a document changes.
-6. Use `baseVersion` on write requests. If the server returns a conflict, reread the document and retry carefully.
-7. Ask for confirmation before bulk copy/move operations or large rewrites.
-8. Ask for explicit confirmation before using `cyime_delete_file`.
+6. Ask for confirmation before bulk copy/move operations or large rewrites.
+7. Ask for explicit confirmation before using `cyime_delete_file`.
 
 ## MCP Tools
 
-- `cyime_list_files`
-- `cyime_create_folder`
-- `cyime_create_markdown_document`
-- `cyime_read_markdown_document`
-- `cyime_update_markdown_document`
-- `cyime_patch_markdown_document`
-- `cyime_rename_file`
-- `cyime_move_file`
-- `cyime_copy_file`
-- `cyime_delete_file`
+- `cyime_search_files`: search documents, folders, and media references by keyword. Use it when the target is not already known.
+- `cyime_list_files`: list direct child folders and documents under the root or a known folder.
+- `cyime_create_folder`: create a folder under the root or a parent folder.
+- `cyime_create_markdown_document`: create a document from Markdown.
+- `cyime_read_markdown_document`: read document content as Markdown.
+- `cyime_update_markdown_document`: replace a whole document with Markdown. Use carefully.
+- `cyime_patch_markdown_document`: apply focused Markdown edits. Prefer this for section-level changes.
+- `cyime_rename_file`: rename a folder or document.
+- `cyime_move_file`: move a folder or document to another folder or the root.
+- `cyime_copy_file`: copy a folder or document.
+- `cyime_delete_file`: move a folder or document to trash after explicit user confirmation.
 
-Business errors from `tools/call` are returned as a normal JSON-RPC result with `isError: true`. Check `result.isError` before assuming the operation succeeded.
+Business errors from `tools/call` are returned as a normal JSON-RPC result with `result.isError: true`. Check `result.isError` before assuming the operation succeeded. `tools/list` includes MCP tool annotations such as `readOnlyHint` and `destructiveHint` for clients that use them.
 
 MCP uses HTTP JSON-RPC. Send requests with `POST /api/v1/mcp` and `Content-Type: application/json`.
 
 Tool scopes:
 
 - `cyime_list_files`: `workspace:read`
+- `cyime_search_files`: `workspace:read`
 - `cyime_create_folder`: `workspace:write`
 - `cyime_create_markdown_document`: `workspace:write`, `document:write`
 - `cyime_read_markdown_document`: `document:read`
@@ -117,6 +118,7 @@ Use these endpoints only when MCP is unavailable:
 
 ```http
 GET /api/v1/open/files?parent_id=null&limit=50&type=all
+GET /api/v1/open/search?q=keyword&limit=10
 POST /api/v1/open/folders
 POST /api/v1/open/documents
 PATCH /api/v1/open/files/{id}

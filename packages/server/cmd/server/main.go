@@ -188,6 +188,7 @@ func main() {
 
 	// Open integration routes authenticate with user-created API tokens.
 	openRoutes := api.Group("/open")
+	openRoutes.Get("/search", apitoken.Protected(apitoken.ScopeWorkspaceRead), workspace.SearchHandler)
 	openRoutes.Get("/files", apitoken.Protected(apitoken.ScopeWorkspaceRead), workspace.GetFilesHandler)
 	openRoutes.Post("/folders", apitoken.Protected(apitoken.ScopeWorkspaceWrite), ai.CreateFolderHandler)
 	openRoutes.Patch("/files/:id", apitoken.Protected(apitoken.ScopeWorkspaceWrite), ai.RenameFileHandler)
