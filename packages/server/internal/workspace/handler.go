@@ -1712,3 +1712,86 @@ func BatchMoveHandler(c *fiber.Ctx) error {
 
 	return c.Status(fiber.StatusOK).JSON(response)
 }
+
+// CopyFileHandler handles POST /api/v1/workspace/files/:id/copy
+func CopyFileHandler(c *fiber.Ctx) error {
+	userIDStr, ok := c.Locals("userId").(string)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
+			Error:   "Unauthorized",
+			Message: "Invalid user context",
+		})
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "Invalid User ID",
+			Message: "User ID format is invalid",
+		})
+	}
+
+	fileID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "Invalid File ID",
+			Message: "File ID must be a valid UUID",
+		})
+	}
+
+	var req CopyFileRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "Bad Request",
+			Message: "Invalid request body",
+		})
+	}
+	if req.Type != "folder" && req.Type != "document" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "Validation Error",
+			Message: "无效的文件类型",
+		})
+	}
+
+	item, err := CopyFile(userID, fileID, req.Type, req.DestinationFolderID, req.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrDocumentNotFoundOrDeleted),
+			errors.Is(err, ErrFolderNotFoundOrDeleted),
+			errors.Is(err, ErrTargetFolderNotFoundOrDeleted),
+			errors.Is(err, content.ErrDocumentContentNotFound):
+			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+				Error:   "Not Found",
+				Message: err.Error(),
+			})
+		case errors.Is(err, ErrFolderMoveCycle),
+			errors.Is(err, ErrFolderNameRequired),
+			errors.Is(err, ErrFolderNameTooLong),
+			errors.Is(err, ErrReservedFolderName),
+			errors.Is(err, ErrDuplicateFolderName),
+			errors.Is(err, ErrDocumentTitleRequired),
+			errors.Is(err, ErrDocumentTitleTooLong),
+			errors.Is(err, ErrDuplicateDocumentTitle):
+			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+				Error:   "Validation Error",
+				Message: err.Error(),
+			})
+		case errors.Is(err, ErrDocumentQuotaExceeded), errors.Is(err, ErrWorkspaceStorageQuotaExceeded):
+			return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
+				Error:   "Quota Exceeded",
+				Message: err.Error(),
+			})
+		default:
+			return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+				Error:   "Internal Server Error",
+				Message: err.Error(),
+			})
+		}
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(CopyResponse{
+		Success: true,
+		Message: "复制成功",
+		Item:    item,
+	})
+}

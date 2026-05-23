@@ -8,11 +8,13 @@
 
 	interface Props {
 		onAction: (action: ExportAction) => void | Promise<unknown>;
+		variant?: 'icon' | 'menuitem';
+		menuItemClass?: string;
 	}
 
-	let { onAction }: Props = $props();
+	let { onAction, variant = 'icon', menuItemClass = '' }: Props = $props();
 
-	let triggerElement: HTMLButtonElement | null = null;
+	let triggerElement = $state<HTMLButtonElement | null>(null);
 	let panelElement = $state<HTMLDivElement | null>(null);
 	let open = $state(false);
 	let panelStyle = $state('');
@@ -31,12 +33,18 @@
 		if (!triggerElement) return;
 		const rect = triggerElement.getBoundingClientRect();
 		const panelWidth = panelElement?.offsetWidth ?? 200;
+		const panelHeight = panelElement?.offsetHeight ?? 220;
 		const preferredLeft = rect.left + rect.width / 2 - panelWidth / 2;
 		const left = Math.max(
 			viewportMargin,
 			Math.min(preferredLeft, window.innerWidth - panelWidth - viewportMargin)
 		);
-		panelStyle = `position: fixed; left: ${Math.round(left)}px; top: ${Math.round(rect.bottom + 8)}px;`;
+		const preferredTop = rect.bottom + 8;
+		const top =
+			preferredTop + panelHeight + viewportMargin > window.innerHeight
+				? Math.max(viewportMargin, rect.top - panelHeight - 8)
+				: preferredTop;
+		panelStyle = `position: fixed; left: ${Math.round(left)}px; top: ${Math.round(top)}px;`;
 	}
 
 	async function togglePanel() {
@@ -53,24 +61,40 @@
 </script>
 
 <div
-	class="shrink-0"
+	class={variant === 'menuitem' ? 'w-full' : 'shrink-0'}
 	use:clickOutside={{
 		enabled: open,
 		handler: closePanel
 	}}
 >
-	<button
-		bind:this={triggerElement}
-		type="button"
-		title={m.editor_toolbar_share()}
-		aria-label={m.editor_toolbar_share()}
-		aria-haspopup="menu"
-		aria-expanded={open}
-		class={`${iconButtonBaseClass} ${inactiveToggleClass}`}
-		onclick={() => void togglePanel()}
-	>
-		<ShareNetwork class="h-4 w-4" />
-	</button>
+	{#if variant === 'menuitem'}
+		<button
+			bind:this={triggerElement}
+			type="button"
+			aria-haspopup="menu"
+			aria-expanded={open}
+			role="menuitem"
+			class={menuItemClass ||
+				'flex w-full items-center gap-2 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700'}
+			onclick={() => void togglePanel()}
+		>
+			<ShareNetwork class="h-4 w-4" />
+			<span>{m.common_export()}</span>
+		</button>
+	{:else}
+		<button
+			bind:this={triggerElement}
+			type="button"
+			title={m.editor_toolbar_share()}
+			aria-label={m.editor_toolbar_share()}
+			aria-haspopup="menu"
+			aria-expanded={open}
+			class={`${iconButtonBaseClass} ${inactiveToggleClass}`}
+			onclick={() => void togglePanel()}
+		>
+			<ShareNetwork class="h-4 w-4" />
+		</button>
+	{/if}
 
 	{#if open}
 		<div

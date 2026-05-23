@@ -7,13 +7,15 @@
 		selectedItems,
 		bulkMode = false,
 		onToggle,
-		onRefresh
+		onRefresh,
+		collaborationEnabled = false
 	}: {
 		item: FileItem;
 		selectedItems: { [key: string]: boolean };
 		bulkMode?: boolean;
 		onToggle: (id: string) => void;
 		onRefresh?: () => void;
+		collaborationEnabled?: boolean;
 	} = $props();
 </script>
 
@@ -23,5 +25,6 @@
 	{bulkMode}
 	{onToggle}
 	{onRefresh}
+	{collaborationEnabled}
 	iconKind="table"
 />

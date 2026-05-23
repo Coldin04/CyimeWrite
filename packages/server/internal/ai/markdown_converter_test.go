@@ -48,6 +48,20 @@ func TestRemoteMarkdownConverterFailureDoesNotFallbackByDefault(t *testing.T) {
 	}
 }
 
+func TestMarkdownConverterRequiresRemoteConfigByDefault(t *testing.T) {
+	t.Setenv("MARKDOWN_CONVERTER_URL", "")
+	t.Setenv("MARKDOWN_CONVERTER_TOKEN", "")
+	t.Setenv("MARKDOWN_CONVERTER_FALLBACK", "")
+
+	_, err := markdownToContentJSON("# Title")
+	if !errors.Is(err, ErrMarkdownConverterUnavailable) {
+		t.Fatalf("expected ErrMarkdownConverterUnavailable, got %v", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "document was not changed") {
+		t.Fatalf("expected user-facing no-write message, got %q", err.Error())
+	}
+}
+
 func TestRemoteMarkdownConverterExplicitFallbackUsesLegacyConverter(t *testing.T) {
 	t.Setenv("MARKDOWN_CONVERTER_TOKEN", "test-secret")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -55,6 +69,20 @@ func TestRemoteMarkdownConverterExplicitFallbackUsesLegacyConverter(t *testing.T
 	}))
 	defer server.Close()
 	t.Setenv("MARKDOWN_CONVERTER_URL", server.URL)
+	t.Setenv("MARKDOWN_CONVERTER_FALLBACK", "true")
+
+	raw, err := markdownToContentJSON("# Title")
+	if err != nil {
+		t.Fatalf("markdownToContentJSON returned error: %v", err)
+	}
+	if !strings.Contains(string(raw), `"type":"heading"`) {
+		t.Fatalf("expected legacy converter content, got %s", string(raw))
+	}
+}
+
+func TestMarkdownConverterExplicitFallbackUsesLegacyWithoutRemoteConfig(t *testing.T) {
+	t.Setenv("MARKDOWN_CONVERTER_URL", "")
+	t.Setenv("MARKDOWN_CONVERTER_TOKEN", "")
 	t.Setenv("MARKDOWN_CONVERTER_FALLBACK", "true")
 
 	raw, err := markdownToContentJSON("# Title")

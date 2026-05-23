@@ -128,6 +128,18 @@ type MoveResponse struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type CopyFileRequest struct {
+	Type                string     `json:"type"`
+	DestinationFolderID *uuid.UUID `json:"destinationFolderId"`
+	Name                string     `json:"name"`
+}
+
+type CopyResponse struct {
+	Success bool      `json:"success"`
+	Message string    `json:"message"`
+	Item    *FileItem `json:"item,omitempty"`
+}
+
 type UpdateDocumentImageTargetRequest struct {
 	PreferredImageTargetID string `json:"preferredImageTargetId"`
 }

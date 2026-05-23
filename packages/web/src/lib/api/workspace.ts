@@ -57,6 +57,12 @@ export type DeleteResponse = {
 	message: string;
 };
 
+export type CopyFileResponse = {
+	success: boolean;
+	message: string;
+	item?: FileItem;
+};
+
 export type ShareDocumentMember = {
 	userId: string;
 	role: 'owner' | 'collaborator' | 'editor' | 'viewer' | string;
@@ -845,6 +851,71 @@ export async function batchMoveFiles(
 	}
 
 	return response.json();
+}
+
+export async function copyFile(
+	id: string,
+	type: 'folder' | 'document',
+	destinationFolderId: string | null,
+	name = ''
+): Promise<CopyFileResponse> {
+	const response = await apiFetch(`/api/v1/workspace/files/${id}/copy`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ type, destinationFolderId, name })
+	});
+
+	if (!response.ok) {
+		const error = await response.json();
+		throw new Error(error.message || 'Failed to copy file');
+	}
+
+	return response.json();
+}
+
+export async function batchCopyFiles(
+	items: { id: string; type: 'folder' | 'document' }[],
+	destinationFolderId: string | null
+): Promise<{
+	success: boolean;
+	message: string;
+	copiedCount: number;
+	failedItems?: { id: string; type: string; reason: string }[];
+}> {
+	const failedItems: { id: string; type: string; reason: string }[] = [];
+	let copiedCount = 0;
+	const concurrencyLimit = Math.min(4, items.length);
+	let nextIndex = 0;
+
+	const workers = Array.from({ length: concurrencyLimit }, async () => {
+		while (nextIndex < items.length) {
+			const currentIndex = nextIndex;
+			nextIndex += 1;
+			const item = items[currentIndex];
+			if (!item) continue;
+			try {
+				await copyFile(item.id, item.type, destinationFolderId);
+				copiedCount += 1;
+			} catch (error) {
+				failedItems.push({
+					id: item.id,
+					type: item.type,
+					reason: error instanceof Error ? error.message : 'Failed to copy file'
+				});
+			}
+		}
+	});
+
+	await Promise.all(workers);
+
+	return {
+		success: failedItems.length === 0,
+		message: failedItems.length === 0 ? 'Copied successfully' : 'Some items failed to copy',
+		copiedCount,
+		failedItems: failedItems.length > 0 ? failedItems : undefined
+	};
 }
 
 /**

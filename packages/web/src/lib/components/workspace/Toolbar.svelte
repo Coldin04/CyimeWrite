@@ -5,6 +5,7 @@
 	import { breadcrumbItems } from '$lib/stores/workspace';
 	import * as m from '$paraglide/messages';
 	import ArrowRight from '~icons/ph/arrow-right';
+	import CopySimple from '~icons/ph/copy-simple';
 
 	const {
 		bulkMode = false,
@@ -12,6 +13,7 @@
 		onToggleBulk,
 		onBulkDelete,
 		onBulkMove,
+		onBulkCopy,
 		onNavigate
 	}: {
 		bulkMode?: boolean;
@@ -19,6 +21,7 @@
 		onToggleBulk: () => void;
 		onBulkDelete: () => void;
 		onBulkMove: () => void;
+		onBulkCopy: () => void;
 		onNavigate?: (id: string | null) => void;
 	} = $props();
 </script>
@@ -42,6 +45,13 @@
 				<span class="hidden sm:inline">{m.common_move()}</span>
 			</button>
 			<button
+				onclick={onBulkCopy}
+				class="inline-flex h-10 items-center gap-2 rounded-lg bg-sky-500 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sky-600"
+			>
+				<CopySimple class="h-4 w-4" />
+				<span class="hidden sm:inline">{m.common_copy()}</span>
+			</button>
+			<button
 				onclick={onBulkDelete}
 				class="inline-flex h-10 items-center gap-2 rounded-lg bg-red-500 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-600"
 			>
@@ -57,4 +67,3 @@
 		</div>
 	{/if}
 </div>
-
