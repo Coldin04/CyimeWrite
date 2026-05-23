@@ -5,39 +5,22 @@ import type { ExportAction } from '$lib/export/exportActions';
 import {
 	buildExportAssetFilename,
 	cloneContentJson,
-	collectImageNodes,
 	collectManagedImages,
+	inferExportAssetMimeType,
+	normalizeManagedImagesForSave,
+	replaceManagedImagesWithPublicURLs
+} from '$lib/export/managedImages';
+import {
 	ExportCopyError,
 	exportHtmlDocument,
 	exportPdfDocument,
-	getManagedAssetId,
-	inferExportAssetMimeType,
 	inlineManagedImagesAsDataURLs,
-	replaceManagedImagesWithPublicURLs,
 	runExportAction
 } from '$lib/export/exportPrivateImages';
 import { toast } from 'svelte-sonner';
 import * as m from '$paraglide/messages';
 
-type ImageNodeRecord = Record<string, unknown> & {
-	attrs?: Record<string, unknown>;
-};
-
-export function normalizeManagedImagesForSave(input: JSONContent): JSONContent {
-	const cloned = cloneContentJson(input);
-	const imageNodes: ImageNodeRecord[] = [];
-	collectImageNodes(cloned, imageNodes);
-
-	for (const node of imageNodes) {
-		const attrs = (node.attrs ?? {}) as Record<string, unknown>;
-		const assetId = getManagedAssetId(attrs);
-		if (!assetId) continue;
-		delete attrs.src;
-		node.attrs = attrs;
-	}
-
-	return cloned;
-}
+export { normalizeManagedImagesForSave };
 
 export function createExportCopyTitle(value: string): string {
 	const trimmed = value.trim();
