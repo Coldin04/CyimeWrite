@@ -41,6 +41,7 @@ func newWorkspaceTestApp(userID uuid.UUID) *fiber.App {
 	app.Delete("/files/:id", DeleteFileHandler)
 	app.Post("/files/batch-delete", BatchDeleteHandler)
 	app.Post("/files/batch-move", BatchMoveHandler)
+	app.Post("/files/:id/copy", CopyFileHandler)
 	return app
 }
 
@@ -162,6 +163,86 @@ func TestBatchMoveHandler_Document_CrossUserDeniedAndNotMoved(t *testing.T) {
 	}
 	if got.FolderID == nil || *got.FolderID != folderID {
 		t.Fatal("expected document folder unchanged")
+	}
+}
+
+func TestCopyFileHandler_Document_CrossUserDeniedAndNotCopied(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	attackerID := uuid.New()
+	docID := seedDocumentForWorkspace(t, db, ownerID, "owner-doc")
+
+	app := newWorkspaceTestApp(attackerID)
+	body := bytes.NewBufferString(`{"type":"document","destinationFolderId":null,"name":"copied-doc"}`)
+	req := httptest.NewRequest(http.MethodPost, "/files/"+docID.String()+"/copy", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var count int64
+	if err := db.Model(&models.Document{}).Where("owner_user_id = ? AND deleted_at IS NULL", ownerID).Count(&count).Error; err != nil {
+		t.Fatalf("count owner documents: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected no copied documents, got %d", count)
+	}
+}
+
+func TestCopyFileHandler_InvalidTypeReturnsValidationError(t *testing.T) {
+	setupWorkspaceTestDB(t)
+	userID := uuid.New()
+
+	app := newWorkspaceTestApp(userID)
+	body := bytes.NewBufferString(`{"type":"invalid","destinationFolderId":null,"name":"copied-doc"}`)
+	req := httptest.NewRequest(http.MethodPost, "/files/"+uuid.New().String()+"/copy", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+
+	var payload ErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Error != "Validation Error" {
+		t.Fatalf("expected validation error, got %+v", payload)
+	}
+}
+
+func TestCopyFileHandler_InvalidBodyReturnsBadRequest(t *testing.T) {
+	setupWorkspaceTestDB(t)
+	userID := uuid.New()
+
+	app := newWorkspaceTestApp(userID)
+	body := bytes.NewBufferString(`{"type":"document",`)
+	req := httptest.NewRequest(http.MethodPost, "/files/"+uuid.New().String()+"/copy", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+
+	var payload ErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Error != "Bad Request" {
+		t.Fatalf("expected bad request, got %+v", payload)
 	}
 }
 

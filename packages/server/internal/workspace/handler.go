@@ -1748,7 +1748,7 @@ func CopyFileHandler(c *fiber.Ctx) error {
 	}
 	if req.Type != "folder" && req.Type != "document" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error:   "Bad Request",
+			Error:   "Validation Error",
 			Message: "无效的文件类型",
 		})
 	}
@@ -1773,7 +1773,7 @@ func CopyFileHandler(c *fiber.Ctx) error {
 			errors.Is(err, ErrDocumentTitleTooLong),
 			errors.Is(err, ErrDuplicateDocumentTitle):
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-				Error:   "Bad Request",
+				Error:   "Validation Error",
 				Message: err.Error(),
 			})
 		case errors.Is(err, ErrDocumentQuotaExceeded), errors.Is(err, ErrWorkspaceStorageQuotaExceeded):

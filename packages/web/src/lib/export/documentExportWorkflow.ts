@@ -24,7 +24,8 @@ export { normalizeManagedImagesForSave };
 
 export function createExportCopyTitle(value: string): string {
 	const trimmed = value.trim();
-	return trimmed === '' ? 'Untitled Export' : `${trimmed} (Export)`;
+	const exportLabel = `(${m.common_export()})`;
+	return trimmed === '' ? `${m.workspace_notification_untitled_document()} ${exportLabel}` : `${trimmed} ${exportLabel}`;
 }
 
 export async function performDocumentExport(options: {
