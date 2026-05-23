@@ -448,24 +448,36 @@ function pathIDParameter() {
 	};
 }
 
-function queryParameter(name: string, example: string, description: string, required = false) {
+function queryParameter(
+	name: string,
+	example: string | number,
+	description: string,
+	required = false,
+	schema: Record<string, unknown> = { type: 'string' }
+) {
 	return {
 		name,
 		in: 'query',
 		required,
 		description,
-		schema: { type: 'string' },
+		schema,
 		example
 	};
 }
 
 function fileListParameters() {
 	return [
-		queryParameter('parent_id', 'null', 'Folder UUID, empty, or null for root.'),
-		queryParameter('limit', '50', 'Maximum number of items.'),
-		queryParameter('offset', '0', 'Pagination offset.'),
+		queryParameter('parent_id', 'null', 'Folder UUID, empty, or null for root.', false, {
+			type: ['string', 'null'],
+			format: 'uuid'
+		}),
+		queryParameter('limit', 50, 'Maximum number of items.', false, { type: 'integer' }),
+		queryParameter('offset', 0, 'Pagination offset.', false, { type: 'integer' }),
 		queryParameter('sort_by', 'updated_at', 'Sort field.'),
-		queryParameter('order', 'desc', 'Sort order: asc or desc.'),
+		queryParameter('order', 'desc', 'Sort order: asc or desc.', false, {
+			type: 'string',
+			enum: ['asc', 'desc']
+		}),
 		queryParameter('type', 'all', 'Filter: all, folder, or document.')
 	];
 }
@@ -473,7 +485,7 @@ function fileListParameters() {
 function searchParameters() {
 	return [
 		queryParameter('q', 'keyword', 'Search keywords.', true),
-		queryParameter('limit', '10', 'Maximum results per category.')
+		queryParameter('limit', 10, 'Maximum results per category.', false, { type: 'integer' })
 	];
 }
 

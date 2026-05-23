@@ -183,7 +183,7 @@ var tools = []toolDefinition{
 			"query": stringSchema("Search keywords. Matches document titles, excerpts, body text, folder names, and media metadata."),
 			"q":     stringSchema("Alias for query."),
 			"limit": integerSchema("Maximum results per category."),
-		}, []string{"query"}),
+		}, nil),
 		Call: callSearchFiles,
 	},
 	{
@@ -370,13 +370,8 @@ func handleInitialize(c *fiber.Ctx, req rpcRequest) error {
 		return c.JSON(errorResponse(req.ID, jsonRPCInvalidParams, "Invalid params", err.Error()))
 	}
 
-	version := protocolVersion
-	if strings.TrimSpace(params.ProtocolVersion) != "" {
-		version = params.ProtocolVersion
-	}
-
 	return c.JSON(successResponse(req.ID, initializeResult{
-		ProtocolVersion: version,
+		ProtocolVersion: protocolVersion,
 		Capabilities: map[string]any{
 			"tools": map[string]any{
 				"listChanged": false,
