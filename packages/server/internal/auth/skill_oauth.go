@@ -528,10 +528,6 @@ func validateSkillOAuthRedirectURI(raw string) error {
 		if parsed.Scheme == "https" {
 			return fmt.Errorf("https redirect_uri must be allowlisted with CYIME_SKILL_OAUTH_REDIRECT_URIS")
 		}
-	default:
-		if parsed.Scheme != "" {
-			return nil
-		}
 	}
 
 	return fmt.Errorf("redirect_uri is not allowed")

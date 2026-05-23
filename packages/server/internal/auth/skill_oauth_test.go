@@ -294,6 +294,17 @@ func TestSkillOAuthDenyReturnsAccessDeniedRedirect(t *testing.T) {
 	}
 }
 
+func TestValidateSkillOAuthRedirectURI_RejectsUnsafeSchemes(t *testing.T) {
+	for _, redirectURI := range []string{
+		"javascript:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+	} {
+		if err := validateSkillOAuthRedirectURI(redirectURI); err == nil {
+			t.Fatalf("expected redirect URI %q to be rejected", redirectURI)
+		}
+	}
+}
+
 func pkceS256Challenge(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(sum[:])

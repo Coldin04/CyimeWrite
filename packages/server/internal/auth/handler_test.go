@@ -495,3 +495,30 @@ func TestGetUserProfile_GitHubIgnoresUnverifiedUserEmailWithoutVerifiedEmailReco
 		t.Fatalf("expected github email to remain unverified")
 	}
 }
+
+func TestNormalizeAuthReturnTo_RejectsPathTraversal(t *testing.T) {
+	t.Setenv("PUBLIC_API_BASE_URL", "https://api.example.test")
+
+	cases := []string{
+		"/api/v1/auth/skill/oauth/authorize/../logout",
+		"https://api.example.test/api/v1/auth/skill/oauth/authorize/../logout",
+	}
+
+	for _, input := range cases {
+		if _, err := normalizeAuthReturnTo(input); err == nil {
+			t.Fatalf("expected return_to %q to be rejected", input)
+		}
+	}
+}
+
+func TestNormalizeAuthReturnTo_AllowsExactAuthorizePath(t *testing.T) {
+	t.Setenv("PUBLIC_API_BASE_URL", "https://api.example.test")
+
+	normalized, err := normalizeAuthReturnTo("/api/v1/auth/skill/oauth/authorize?client_id=lobe")
+	if err != nil {
+		t.Fatalf("normalizeAuthReturnTo returned error: %v", err)
+	}
+	if normalized != "https://api.example.test/api/v1/auth/skill/oauth/authorize?client_id=lobe" {
+		t.Fatalf("normalized = %q", normalized)
+	}
+}

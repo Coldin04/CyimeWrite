@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,7 @@ var tokenService *TokenService
 var tokenServiceMu sync.Mutex
 
 const authReturnToCookieName = "cyime_auth_return_to"
+const authReturnToAllowedPath = "/api/v1/auth/skill/oauth/authorize"
 
 func getTokenService() (*TokenService, error) {
 	tokenServiceMu.Lock()
@@ -579,19 +581,27 @@ func normalizeAuthReturnTo(raw string) (string, error) {
 		if !sameURLOrigin(parsed, apiBase) {
 			return "", fmt.Errorf("return_to origin is not allowed")
 		}
-		if !strings.HasPrefix(parsed.EscapedPath(), "/api/v1/auth/skill/oauth/authorize") {
+		if !isAllowedAuthReturnToPath(parsed.Path) {
 			return "", fmt.Errorf("return_to path is not allowed")
 		}
 		return parsed.String(), nil
 	}
 
-	if !strings.HasPrefix(value, "/api/v1/auth/skill/oauth/authorize") {
+	if parsed.Scheme != "" || parsed.Host != "" || strings.HasPrefix(value, "//") {
 		return "", fmt.Errorf("return_to path is not allowed")
 	}
-	if strings.HasPrefix(value, "//") {
+	if !isAllowedAuthReturnToPath(parsed.Path) {
 		return "", fmt.Errorf("return_to path is not allowed")
 	}
 	return getAPIBaseURL() + value, nil
+}
+
+func isAllowedAuthReturnToPath(rawPath string) bool {
+	if rawPath == "" {
+		return false
+	}
+	cleaned := path.Clean(rawPath)
+	return cleaned == authReturnToAllowedPath && rawPath == cleaned
 }
 
 func sameURLOrigin(a, b *url.URL) bool {
