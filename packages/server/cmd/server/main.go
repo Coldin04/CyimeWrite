@@ -158,6 +158,8 @@ func main() {
 	workspaceRoutes.Put("/folders/:id/move", workspace.MoveFolderHandler)
 	// Batch move files and folders
 	workspaceRoutes.Post("/files/batch-move", workspace.BatchMoveHandler)
+	// Copy file or folder
+	workspaceRoutes.Post("/files/:id/copy", workspace.CopyFileHandler)
 	// ACL endpoint for realtime collaboration
 	workspaceRoutes.Get("/documents/:id/acl", workspace.GetDocumentACLHandler)
 

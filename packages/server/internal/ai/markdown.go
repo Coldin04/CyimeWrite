@@ -21,6 +21,9 @@ type markNode struct {
 }
 
 var orderedListPattern = regexp.MustCompile(`^\s*\d+\.\s+(.+)$`)
+var markdownImagePattern = regexp.MustCompile(`^!\[([^\]]*)\]\(([^)\s]+)(?:\s+["']([^"']*)["'])?\)$`)
+
+const cyimeAssetMarkdownScheme = "cyime-asset:"
 
 func legacyMarkdownToContentJSON(markdown string) ([]byte, error) {
 	lines := strings.Split(strings.ReplaceAll(markdown, "\r\n", "\n"), "\n")
@@ -63,6 +66,12 @@ func legacyMarkdownToContentJSON(markdown string) ([]byte, error) {
 				Attrs:   map[string]any{"level": level},
 				Content: textContent(text),
 			})
+			i++
+			continue
+		}
+
+		if image, ok := parseImageLine(trimmed); ok {
+			blocks = append(blocks, image)
 			i++
 			continue
 		}
@@ -158,6 +167,37 @@ func listItem(text string) docNode {
 	}
 }
 
+func parseImageLine(line string) (docNode, bool) {
+	matches := markdownImagePattern.FindStringSubmatch(line)
+	if len(matches) != 4 {
+		return docNode{}, false
+	}
+
+	attrs := map[string]any{}
+	if alt := strings.TrimSpace(matches[1]); alt != "" {
+		attrs["alt"] = alt
+	}
+	rawURL := strings.TrimSpace(matches[2])
+	if assetID := parseCyimeAssetMarkdownURL(rawURL); assetID != "" {
+		attrs["assetId"] = assetID
+	} else if rawURL != "" {
+		attrs["src"] = rawURL
+	}
+	if title := strings.TrimSpace(matches[3]); title != "" {
+		attrs["title"] = title
+	}
+
+	return docNode{Type: "image", Attrs: attrs}, true
+}
+
+func parseCyimeAssetMarkdownURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if !strings.HasPrefix(strings.ToLower(trimmed), cyimeAssetMarkdownScheme) {
+		return ""
+	}
+	return strings.TrimSpace(trimmed[len(cyimeAssetMarkdownScheme):])
+}
+
 func textContent(text string) []docNode {
 	if text == "" {
 		return nil
@@ -183,6 +223,8 @@ func renderBlock(node docNode) string {
 		return strings.Repeat("#", level) + " " + renderInline(node.Content)
 	case "paragraph":
 		return renderInline(node.Content)
+	case "image":
+		return renderImage(node)
 	case "codeBlock":
 		language, _ := node.Attrs["language"].(string)
 		return "```" + language + "\n" + plainText(node.Content) + "\n```"
@@ -236,9 +278,52 @@ func renderInline(nodes []docNode) string {
 			builder.WriteString(renderMarkedText(node))
 			continue
 		}
+		if node.Type == "image" {
+			builder.WriteString(renderImage(node))
+			continue
+		}
 		builder.WriteString(renderBlock(node))
 	}
 	return builder.String()
+}
+
+func renderImage(node docNode) string {
+	src := imageMarkdownURL(node.Attrs)
+	if src == "" {
+		return ""
+	}
+	alt, _ := node.Attrs["alt"].(string)
+	if alt == "" {
+		alt, _ = node.Attrs["title"].(string)
+	}
+	title, _ := node.Attrs["title"].(string)
+	if strings.TrimSpace(title) != "" {
+		return "![" + escapeMarkdownImageText(alt) + "](" + src + ` "` + escapeMarkdownImageTitle(title) + `")`
+	}
+	return "![" + escapeMarkdownImageText(alt) + "](" + src + ")"
+}
+
+func imageMarkdownURL(attrs map[string]any) string {
+	if assetID, ok := attrs["assetId"].(string); ok && strings.TrimSpace(assetID) != "" {
+		return cyimeAssetMarkdownScheme + strings.TrimSpace(assetID)
+	}
+	if src, ok := attrs["src"].(string); ok && strings.TrimSpace(src) != "" {
+		return strings.TrimSpace(src)
+	}
+	return ""
+}
+
+func escapeMarkdownImageText(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, "[", `\[`)
+	value = strings.ReplaceAll(value, "]", `\]`)
+	return value
+}
+
+func escapeMarkdownImageTitle(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	return value
 }
 
 func renderMarkedText(node docNode) string {

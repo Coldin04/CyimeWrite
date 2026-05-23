@@ -11,6 +11,7 @@
 	import DocumentListItemSkeleton from '$lib/components/workspace/DocumentListItemSkeleton.svelte';
 	import NewFolderItem from '$lib/components/workspace/NewFolderItem.svelte';
 	import MoveDialog from '$lib/components/workspace/MoveDialog.svelte';
+	import CopyDialog from '$lib/components/workspace/CopyDialog.svelte';
 	import SharedFolderListItem from '$lib/components/workspace/SharedFolderListItem.svelte';
 	import {
 		getFiles,
@@ -33,6 +34,7 @@
 	let isLoading = $state(true);
 	let refreshTrigger = $state(0);
 	let isMoveDialogOpen = $state(false);
+	let isCopyDialogOpen = $state(false);
 	let realtimeConfigSignal = $state(get(realtimeConfig));
 	realtimeConfig.subscribe((state) => (realtimeConfigSignal = state));
 	const collaborationEnabled = $derived(realtimeConfigSignal.config?.collaborationEnabled ?? false);
@@ -242,8 +244,20 @@
 		}
 	}
 
+	function handleBulkCopy() {
+		if (selectedItemsCount > 0) {
+			isCopyDialogOpen = true;
+		}
+	}
+
 	function handleMoveDialogClose() {
 		isMoveDialogOpen = false;
+		resetBulkMode();
+		refreshTrigger++;
+	}
+
+	function handleCopyDialogClose() {
+		isCopyDialogOpen = false;
 		resetBulkMode();
 		refreshTrigger++;
 	}
@@ -268,6 +282,7 @@
 		onToggleBulk={resetBulkMode}
 		onBulkDelete={handleBulkDelete}
 		onBulkMove={handleBulkMove}
+		onBulkCopy={handleBulkCopy}
 		onNavigate={(id) => {
 			workspaceContext.update((ctx) => ({ ...ctx, currentFolderId: id, bulkMode: false }));
 			resetBulkMode();
@@ -348,6 +363,7 @@
 						{item}
 							{selectedItems}
 							{bulkMode}
+							{collaborationEnabled}
 							onToggle={toggleItem}
 							onRefresh={() => refreshTrigger++}
 						/>
@@ -356,6 +372,7 @@
 							{item}
 							{selectedItems}
 							{bulkMode}
+							{collaborationEnabled}
 							onToggle={toggleItem}
 							onRefresh={() => refreshTrigger++}
 						/>
@@ -371,5 +388,13 @@
 		items={getSelectedItemsDetails()}
 		on:cancel={() => (isMoveDialogOpen = false)}
 		on:move={handleMoveDialogClose}
+	/>
+{/if}
+
+{#if isCopyDialogOpen}
+	<CopyDialog
+		items={getSelectedItemsDetails()}
+		on:cancel={() => (isCopyDialogOpen = false)}
+		on:copy={handleCopyDialogClose}
 	/>
 {/if}

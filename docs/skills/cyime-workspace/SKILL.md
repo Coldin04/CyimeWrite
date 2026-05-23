@@ -117,6 +117,16 @@ Do not call Cyime when:
 6. Ask for confirmation before bulk copy/move operations or large rewrites.
 7. Ask for explicit confirmation before using `cyime_delete_file`.
 
+## Private Images
+
+Cyime may expose private managed images in Markdown as stable internal placeholders:
+
+```md
+![alt](cyime-asset:<assetId>)
+```
+
+These placeholders mark image positions for round-trip preservation. Do not edit, delete, rename, rewrite, decode, summarize, or replace `cyime-asset:` URLs unless the user explicitly asks to remove that image. When modifying nearby text, keep the whole Markdown image syntax unchanged and in the same logical position.
+
 ## MCP Tools
 
 - `cyime_search_files`: search documents, folders, and media references by keyword. Use it when the target is not already known.
@@ -193,5 +203,6 @@ REST requests and responses are documented at `/openapi.json`. They use the same
 - Only delete files when the user clearly asks for deletion and confirms it. Delete moves files to trash; this skill does not expose permanent deletion.
 - Do not overwrite a document without reading current content unless the user provided the latest content directly.
 - If multiple matching documents are found, ask the user to choose unless the context clearly identifies one.
+- Preserve `cyime-asset:` image placeholders exactly unless the user explicitly asks to remove that image.
 - If a write fails with a Markdown conversion error or converter unavailable error, tell the user the document was not changed and suggest retrying later or simplifying unsupported Markdown syntax.
 - Keep Cyime-facing content in Markdown.

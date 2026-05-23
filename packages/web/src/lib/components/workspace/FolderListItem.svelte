@@ -5,9 +5,11 @@
 	import Pencil from '~icons/ph/pencil';
 	import Trash from '~icons/ph/trash';
 	import FolderOpen from '~icons/ph/folder-open';
-	import { deleteFile, updateFileName, moveFile } from '$lib/api/workspace';
+	import CopySimple from '~icons/ph/copy-simple';
+	import { deleteFile, updateFileName } from '$lib/api/workspace';
 	import { toast } from 'svelte-sonner';
 	import MoveDialog from '$lib/components/workspace/MoveDialog.svelte';
+	import CopyDialog from '$lib/components/workspace/CopyDialog.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import * as m from '$paraglide/messages';
@@ -41,7 +43,20 @@
 	let isDeleteConfirmOpen = $state(false);
 	let editingName = $state('');
 	let isMoving = $state(false);
+	let isCopying = $state(false);
+	let menuPlacement = $state<'button' | 'context'>('button');
+	let contextMenuX = $state(0);
+	let contextMenuY = $state(0);
 	const isMovingItem = $derived(isMoving && item.type === 'folder');
+	const isCopyingItem = $derived(isCopying && item.type === 'folder');
+	const menuClass = $derived(
+		menuPlacement === 'context'
+			? 'fixed z-40 w-44 origin-top-left rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-zinc-800 dark:ring-zinc-700'
+			: 'absolute top-full right-0 z-20 mt-1 w-44 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-zinc-800 dark:ring-zinc-700'
+	);
+	const menuStyle = $derived(
+		menuPlacement === 'context' ? `left: ${contextMenuX}px; top: ${contextMenuY}px;` : ''
+	);
 
 	function formatRelativeTime(dateString: string): string {
 		const date = new Date(dateString);
@@ -84,11 +99,24 @@
 	}
 
 	function toggleMenu() {
+		menuPlacement = 'button';
 		showMenu = !showMenu;
 	}
 
 	function closeMenu() {
 		showMenu = false;
+	}
+
+	function openContextMenu(event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		const margin = 8;
+		const menuWidth = 176;
+		const menuHeight = 176;
+		contextMenuX = Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin));
+		contextMenuY = Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin));
+		menuPlacement = 'context';
+		showMenu = true;
 	}
 
 	function startEditing() {
@@ -154,6 +182,11 @@
 		showMenu = false;
 	}
 
+	function startCopying() {
+		isCopying = true;
+		showMenu = false;
+	}
+
 	function handleMoveComplete() {
 		isMoving = false;
 		onRefresh?.();
@@ -161,6 +194,15 @@
 
 	function handleMoveCancel() {
 		isMoving = false;
+	}
+
+	function handleCopyComplete() {
+		isCopying = false;
+		onRefresh?.();
+	}
+
+	function handleCopyCancel() {
+		isCopying = false;
 	}
 </script>
 
@@ -172,6 +214,7 @@
 		: ''}"
 	onclick={handleClick}
 	onkeydown={handleKeyDown}
+	oncontextmenu={openContextMenu}
 >
 	<!-- Left Side: Name -->
 	<div class="flex min-w-0 items-center gap-3 pr-4">
@@ -214,7 +257,8 @@
 			{#if showMenu}
 				<div
 					role="menu"
-					class="absolute top-full right-0 z-20 mt-1 w-40 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-zinc-800 dark:ring-zinc-700"
+					class={menuClass}
+					style={menuStyle}
 					onclick={(e) => e.stopPropagation()}
 					onkeydown={(e) => {
 						if (e.key === 'Escape') {
@@ -240,6 +284,14 @@
 						<span>{m.common_move_to()}</span>
 					</button>
 					<button
+						onclick={startCopying}
+						class="flex w-full items-center gap-2 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+						role="menuitem"
+					>
+						<CopySimple class="h-4 w-4" />
+						<span>{m.common_copy_to()}</span>
+					</button>
+					<button
 						onclick={openDeleteConfirm}
 						class="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700"
 						role="menuitem"
@@ -258,6 +310,14 @@
 		items={[{ id: item.id, type: item.type }]}
 		on:cancel={handleMoveCancel}
 		on:move={handleMoveComplete}
+	/>
+{/if}
+
+{#if isCopying && isCopyingItem}
+	<CopyDialog
+		items={[{ id: item.id, type: item.type }]}
+		on:cancel={handleCopyCancel}
+		on:copy={handleCopyComplete}
 	/>
 {/if}
 

@@ -35,10 +35,13 @@
 		publicAccess?: 'private' | 'authenticated' | 'public' | string;
 		publicUrl?: string;
 		isUpdating?: boolean;
+		trigger?: 'icon' | 'none';
+		initialOpen?: boolean;
 		onSelect: (targetId: string) => void | Promise<unknown>;
 		onTitleChange?: (title: string) => void;
 		onManualExcerptChange?: (excerpt: string) => void;
 		onPublicAccessChange?: (publicAccess: string, publicUrl: string) => void;
+		onOpenChange?: (open: boolean) => void;
 	};
 
 	type DesignSection = {
@@ -66,16 +69,19 @@
 		currentTargetId,
 		options,
 		canEditBasic = true,
-		canManageMembers = true,
+		canManageMembers = false,
 		canEditImageSettings = true,
 		canManagePublic = false,
 		publicAccess = 'private',
 		publicUrl = '',
 		isUpdating = false,
+		trigger = 'icon',
+		initialOpen = false,
 		onSelect,
 		onTitleChange,
 		onManualExcerptChange,
-		onPublicAccessChange
+		onPublicAccessChange,
+		onOpenChange
 	}: Props = $props();
 
 	const visibleSections = $derived(
@@ -107,6 +113,12 @@
 	let permissionsSection: HTMLElement | null = $state(null);
 	let imageSection: HTMLElement | null = $state(null);
 	let sectionObserver: IntersectionObserver | null = null;
+
+	$effect(() => {
+		if (initialOpen) {
+			open = true;
+		}
+	});
 
 	$effect(() => {
 		if (!open || !isSavingPublicAccess) {
@@ -190,8 +202,13 @@
 		};
 	});
 
+	function setOpen(nextOpen: boolean) {
+		open = nextOpen;
+		onOpenChange?.(nextOpen);
+	}
+
 	function closeDialog() {
-		open = false;
+		setOpen(false);
 	}
 
 	function scrollToSection(id: DesignSectionId) {
@@ -346,16 +363,18 @@
 	}
 </script>
 
-<button
-	type="button"
-	class="grid h-8 w-8 shrink-0 place-content-center rounded-full text-zinc-500 transition-colors hover:bg-black/10 hover:text-zinc-800 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200"
-	title={m.editor_topbar_image_target_settings()}
-	aria-label={m.editor_topbar_image_target_settings()}
-	disabled={isUpdating || visibleSections.length === 0}
-	onclick={() => (open = true)}
->
-	<SlidersHorizontal class="h-5 w-5" />
-</button>
+{#if trigger !== 'none'}
+	<button
+		type="button"
+		class="grid h-8 w-8 shrink-0 place-content-center rounded-full text-zinc-500 transition-colors hover:bg-black/10 hover:text-zinc-800 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+		title={m.editor_topbar_image_target_settings()}
+		aria-label={m.editor_topbar_image_target_settings()}
+		disabled={isUpdating || visibleSections.length === 0}
+		onclick={() => setOpen(true)}
+	>
+		<SlidersHorizontal class="h-5 w-5" />
+	</button>
+{/if}
 
 {#if open}
 	<div

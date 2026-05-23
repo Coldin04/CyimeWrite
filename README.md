@@ -204,6 +204,8 @@ MARKDOWN_CONVERTER_FALLBACK=false
 
 `MARKDOWN_CONVERTER_TOKEN` 由部署者自行生成并分别配置到 `packages/server` 和 `packages/web` 的运行环境中。它不是用户中心创建的 `cyime_sk_...` API Token，也不能给 AI 客户端使用。
 
+默认情况下，Go 后端必须通过 Web 前端转换器完成 Markdown 与编辑器 JSON 的互转。即使未配置 `MARKDOWN_CONVERTER_URL` 或 `MARKDOWN_CONVERTER_TOKEN`，也不会自动回退到 Go 内置简化转换器；MCP/Open API Markdown 读写会失败，写入失败时会明确提示文档未更改。只有显式设置 `MARKDOWN_CONVERTER_FALLBACK=true` 时，才允许绕过前端转换器并使用 Go legacy fallback。
+
 本地生成内部转换 token 的示例：
 
 ```bash
@@ -219,7 +221,7 @@ curl -sS http://127.0.0.1:5173/markdown/convert \
   -d '{"direction":"markdown-to-json","markdown":"# Hello\n\n- one\n- two"}'
 ```
 
-如果转换服务不可用，且 `MARKDOWN_CONVERTER_FALLBACK=false`，MCP/Open API 写入会失败并明确提示文档未更改；只有显式设置 `MARKDOWN_CONVERTER_FALLBACK=true` 时才会回退到 Go 内置的简化 Markdown 转换器。
+如果转换服务不可用、未配置或返回无效结果，且 `MARKDOWN_CONVERTER_FALLBACK=false`，MCP/Open API Markdown 读写会失败，写入失败时会明确提示文档未更改；只有显式设置 `MARKDOWN_CONVERTER_FALLBACK=true` 时才会回退到 Go 内置的简化 Markdown 转换器。
 
 
 ## 仓库说明
@@ -315,10 +317,10 @@ curl -sS http://127.0.0.1:5173/markdown/convert \
   - 这两个变量都已统一写在根目录 [`.env.example`](.env.example)
 
 - Skill / MCP Markdown 转换
-  - `MARKDOWN_CONVERTER_URL`：内部 Markdown 转换服务地址。可填写前端 origin，例如 `https://你的前端域名`，Go 后端会自动补 `/markdown/convert`。
-  - `MARKDOWN_CONVERTER_TOKEN`：Go 后端与 Web 内部转换服务之间的共享密钥。需要同时配置到 `packages/server` 与 `packages/web` 的运行环境，不要写入仓库。
+  - `MARKDOWN_CONVERTER_URL`：内部 Markdown 转换服务地址。默认必需；可填写前端 origin，例如 `https://你的前端域名`，Go 后端会自动补 `/markdown/convert`。
+  - `MARKDOWN_CONVERTER_TOKEN`：Go 后端与 Web 内部转换服务之间的共享密钥。默认必需，需要同时配置到 `packages/server` 与 `packages/web` 的运行环境，不要写入仓库。
   - `MARKDOWN_CONVERTER_TIMEOUT`：Go 后端调用转换服务的超时时间，默认 `5s`。
-  - `MARKDOWN_CONVERTER_FALLBACK`：转换服务失败时是否回退到 Go 内置简化转换器，默认 `false`。保持 `false` 时，写入失败会明确提示文档未更改。
+  - `MARKDOWN_CONVERTER_FALLBACK`：转换服务未配置或失败时是否回退到 Go 内置简化转换器，默认 `false`。保持 `false` 时，写入失败会明确提示文档未更改。
   - `MARKDOWN_CONVERTER_MAX_BYTES`：Web 内部转换路由接受的最大请求体字节数，默认 `2097152`。
 
 - 媒体与图床

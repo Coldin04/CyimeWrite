@@ -235,6 +235,14 @@ Recommended full update request:
 }
 ```
 
+Private managed images are represented as stable internal Markdown placeholders:
+
+```md
+![alt](cyime-asset:<assetId>)
+```
+
+Clients must preserve the whole `cyime-asset:` image syntax exactly during reads, updates, and patches unless the user explicitly asks to remove that image. The placeholder is a position marker for round-trip preservation, not a public image URL.
+
 ## Incremental Writes
 
 Prefer incremental writes when editing existing documents.
@@ -270,4 +278,5 @@ Allowed operation types:
 - Only delete files when the user clearly requests deletion and confirms it. Delete moves files to trash; the MCP skill does not expose permanent deletion.
 - Before modifying an existing document, read the current content unless the user provided the latest content directly.
 - If multiple matching documents are found, ask the user to choose or use the most likely match only when the context is clear.
+- Preserve `cyime-asset:` image placeholders exactly unless the user explicitly asks to remove that image.
 - If a write fails with a Markdown conversion error or converter unavailable error, tell the user the document was not changed and suggest retrying later or simplifying unsupported Markdown syntax.

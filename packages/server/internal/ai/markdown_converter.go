@@ -92,10 +92,9 @@ func contentJSONToMarkdown(raw []byte) (string, error) {
 
 func configuredMarkdownConverter() MarkdownConverter {
 	endpoint := strings.TrimSpace(os.Getenv("MARKDOWN_CONVERTER_URL"))
-	if endpoint == "" {
-		return legacyMarkdownConverter{}
+	if endpoint != "" {
+		endpoint = normalizeMarkdownConverterURL(endpoint)
 	}
-	endpoint = normalizeMarkdownConverterURL(endpoint)
 
 	timeout := markdownConverterDefaultTimeout
 	if raw := strings.TrimSpace(os.Getenv("MARKDOWN_CONVERTER_TIMEOUT")); raw != "" {
@@ -170,6 +169,9 @@ func (c remoteMarkdownConverter) ContentJSONToMarkdown(ctx context.Context, raw 
 }
 
 func (c remoteMarkdownConverter) post(ctx context.Context, payload markdownConvertRequest, result *markdownConvertResponse) error {
+	if c.endpoint == "" {
+		return markdownConverterUnavailable(payload.Direction, errors.New("MARKDOWN_CONVERTER_URL is not configured"))
+	}
 	if c.token == "" {
 		return markdownConverterUnavailable(payload.Direction, errors.New("MARKDOWN_CONVERTER_TOKEN is not configured"))
 	}
