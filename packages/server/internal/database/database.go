@@ -147,6 +147,7 @@ func Connect() {
 		&models.AuthProvider{},
 		&models.UserIdentityProvider{},
 		&models.ApiToken{},
+		&models.SkillOAuthCode{},
 		&models.UserSession{},
 	)
 	if err != nil {

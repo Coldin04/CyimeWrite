@@ -19,6 +19,8 @@
 
 这些变量用于 SSR 运行时与浏览器端公开配置读取，不要求写进仓库，也不要求用户修改 `wrangler.toml`。
 
+`PUBLIC_API_BASE_URL` 也会写入前端公开的 `/skill.md`、`/manifest.json` 和 `/openapi.json`，用于声明 MCP、REST Open API 和 Skill OAuth 地址。后端部署应同步配置 `API_BASE_URL` / `PUBLIC_API_BASE_URL` 指向同一个后端公网 origin；如果启用 Skill OAuth，还需要在后端配置 `PUBLIC_BASE_URL` 和按需配置 `CYIME_SKILL_OAUTH_REDIRECT_URIS`。
+
 ## Cloudflare Pages
 
 - Root directory：`packages/web`

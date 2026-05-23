@@ -15,16 +15,72 @@ Use this skill to operate the user's Cyime workspace through MCP-first Markdown 
 - MCP endpoint: `http://127.0.0.1:8080/api/v1/mcp`
 - REST Open API root: `http://127.0.0.1:8080/api/v1/open`
 - REST OpenAPI: `http://localhost:5173/openapi.json`
+- Browser OAuth authorize URL: `http://127.0.0.1:8080/api/v1/auth/skill/oauth/authorize`
+- Browser OAuth token URL: `http://127.0.0.1:8080/api/v1/auth/skill/oauth/token`
 - Authentication: set `Authorization: Bearer <cyime_api_token>` on every protected request.
 - Never reveal, repeat, log, or summarize the raw API token in chat output.
 
+## MCP Client Config Shapes
+
+Different MCP clients wrap the same Cyime endpoint in different config shapes:
+
+- MCP server map: use this when the client expects a named `mcpServers` map. This shape is useful for clients that manage multiple MCP servers in one config object.
+- Streamable HTTP: use this when the client expects one server transport object with `transport: "streamable_http"`. This shape describes the HTTP MCP transport directly.
+
+Both shapes use the same endpoint and bearer token:
+
+```json
+{
+  "mcpServers": {
+    "cyime-workspace": {
+      "type": "http",
+      "url": "http://127.0.0.1:8080/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer <CYIME_API_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "transport": "streamable_http",
+  "url": "http://127.0.0.1:8080/api/v1/mcp",
+  "headers": {
+    "Authorization": "Bearer <CYIME_API_TOKEN>"
+  },
+  "timeout": 5,
+  "sse_read_timeout": 300
+}
+```
+
+## Browser OAuth Token Flow
+
+When the client supports browser OAuth, use the OAuth 2.0 authorization-code flow with PKCE:
+
+- Authorization URL: `http://127.0.0.1:8080/api/v1/auth/skill/oauth/authorize`
+- Token URL: `http://127.0.0.1:8080/api/v1/auth/skill/oauth/token`
+- Response type: `code`
+- Token grant type: `authorization_code`
+- Recommended scopes: `workspace:read`, `workspace:write`, `document:read`, `document:write`, `file:move`, `file:copy`
+- Optional destructive scope: `file:delete`. Request it only when the user wants AI clients to move files to trash.
+
+The user completes Cyime login in the browser. The token endpoint returns a Cyime API token as `access_token` with `token_type: Bearer`. Store it in the client's secret store and send it only as `Authorization: Bearer <access_token>`.
+
+For deployed Cyime instances, server operators must configure:
+
+- `PUBLIC_BASE_URL`: externally reachable frontend origin. Anonymous authorization requests redirect to `${PUBLIC_BASE_URL}/login`.
+- `API_BASE_URL` or `PUBLIC_API_BASE_URL`: externally reachable backend origin. Used to generate auth URLs, provider callbacks, and OAuth return targets.
+- `CYIME_SKILL_OAUTH_REDIRECT_URIS`: allowlist for production HTTPS `redirect_uri` values. Separate multiple values with commas. Loopback redirect URIs (`localhost` / `127.0.0.1`) and custom schemes are allowed by default.
+
 ## LobeHub Skill Token Configuration
 
-When importing this skill into LobeHub Skills, configure a secret skill variable:
+When browser OAuth is unavailable, configure a secret skill variable:
 
 - Key: `CYIME_API_TOKEN`
 - Type: secret or password text
-- Required: true
+- Required: false when browser OAuth is available; true for manual-token clients
 - Value: a Cyime API token created in Cyime user settings
 - Recommended scopes: `workspace:read`, `workspace:write`, `document:read`, `document:write`, `file:move`, `file:copy`
 - Optional destructive scope: `file:delete`. Enable it only when the user wants AI clients to move files to trash.

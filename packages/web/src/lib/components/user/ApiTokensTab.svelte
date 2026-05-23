@@ -3,6 +3,7 @@
 	import { toast } from 'svelte-sonner';
 	import * as m from '$paraglide/messages';
 	import PencilSimple from '~icons/ph/pencil-simple';
+	import Broadcast from '~icons/ph/broadcast';
 	import PlugsConnected from '~icons/ph/plugs-connected';
 	import PuzzlePiece from '~icons/ph/puzzle-piece';
 	import Trash from '~icons/ph/trash';
@@ -22,11 +23,11 @@
 		{ value: 'workspace:read', label: 'workspace:read' },
 		{ value: 'workspace:write', label: 'workspace:write' },
 		{ value: 'document:read', label: 'document:read' },
-	{ value: 'document:write', label: 'document:write' },
-	{ value: 'file:move', label: 'file:move' },
-	{ value: 'file:copy', label: 'file:copy' },
-	{ value: 'file:delete', label: 'file:delete' }
-];
+		{ value: 'document:write', label: 'document:write' },
+		{ value: 'file:move', label: 'file:move' },
+		{ value: 'file:copy', label: 'file:copy' },
+		{ value: 'file:delete', label: 'file:delete' }
+	];
 
 	const readScopes: ApiTokenScope[] = ['workspace:read', 'document:read'];
 	const workspaceEditScopes: ApiTokenScope[] = [
@@ -96,7 +97,7 @@
 		return expiresAt.toISOString();
 	}
 
-	function buildMcpImportConfig(tokenValue: string): string {
+	function buildMcpServerMapConfig(tokenValue: string): string {
 		const rawToken = tokenValue.trim() || tokenPlaceholder;
 		return JSON.stringify(
 			{
@@ -115,10 +116,43 @@
 		);
 	}
 
-	async function copyMcpImportConfig(tokenValue = createdToken, successMessage = m.user_api_tokens_mcp_copied()) {
+	function buildStreamableHttpMcpConfig(tokenValue: string): string {
+		const rawToken = tokenValue.trim() || tokenPlaceholder;
+		return JSON.stringify(
+			{
+				transport: 'streamable_http',
+				url: mcpEndpoint,
+				headers: {
+					Authorization: `Bearer ${rawToken}`
+				},
+				timeout: 5,
+				sse_read_timeout: 300
+			},
+			null,
+			2
+		);
+	}
+
+	async function copyMcpServerMapConfig(
+		tokenValue = createdToken,
+		successMessage = m.user_api_tokens_server_map_mcp_copied()
+	) {
 		if (!tokenValue.trim()) return;
 		try {
-			await navigator.clipboard.writeText(buildMcpImportConfig(tokenValue));
+			await navigator.clipboard.writeText(buildMcpServerMapConfig(tokenValue));
+			toast.success(successMessage);
+		} catch {
+			toast.error(m.user_api_tokens_mcp_copy_failed());
+		}
+	}
+
+	async function copyStreamableHttpMcpConfig(
+		tokenValue = createdToken,
+		successMessage = m.user_api_tokens_streamable_http_mcp_copied()
+	) {
+		if (!tokenValue.trim()) return;
+		try {
+			await navigator.clipboard.writeText(buildStreamableHttpMcpConfig(tokenValue));
 			toast.success(successMessage);
 		} catch {
 			toast.error(m.user_api_tokens_mcp_copy_failed());
@@ -135,7 +169,7 @@
 		}
 	}
 
-	async function handleCreate(options: { copyMcp?: boolean } = {}) {
+	async function handleCreate() {
 		if (creating) return;
 		if (selectedScopes.length === 0) {
 			toast.error(m.user_api_tokens_scope_required());
@@ -155,11 +189,7 @@
 			selectedScopes = [...workspaceEditScopes];
 			expiry = '30';
 			await loadTokens();
-			if (options.copyMcp) {
-				await copyMcpImportConfig(created.token, m.user_api_tokens_mcp_created_and_copied());
-			} else {
-				toast.success(m.user_api_tokens_created());
-			}
+			toast.success(m.user_api_tokens_created());
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : m.user_api_tokens_create_failed());
 		} finally {
@@ -288,16 +318,42 @@
 				<span class="text-xs font-medium text-zinc-500 dark:text-zinc-400">
 					{m.user_api_tokens_import_to()}
 				</span>
-				<button
-					type="button"
-					class="inline-flex h-9 w-9 items-center justify-center rounded-md text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-cyan-300 dark:hover:bg-cyan-950/30"
-					disabled={!createdToken}
-					aria-label={m.user_api_tokens_mcp_import_action()}
-					title={m.user_api_tokens_mcp_import_action()}
-					onclick={() => copyMcpImportConfig()}
+				<span
+					class="inline-flex"
+					title={createdToken
+						? m.user_api_tokens_server_map_mcp_import_description()
+						: m.user_api_tokens_create_before_copy_hint()}
 				>
-					<PlugsConnected class="h-4 w-4 shrink-0" />
-				</button>
+					<button
+						type="button"
+						class="inline-flex h-9 w-9 items-center justify-center rounded-md text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-cyan-300 dark:hover:bg-cyan-950/30"
+						disabled={!createdToken}
+						aria-label={createdToken
+							? m.user_api_tokens_server_map_mcp_import_description()
+							: m.user_api_tokens_create_before_copy_hint()}
+						onclick={() => copyMcpServerMapConfig()}
+					>
+						<PlugsConnected class="h-4 w-4 shrink-0" />
+					</button>
+				</span>
+				<span
+					class="inline-flex"
+					title={createdToken
+						? m.user_api_tokens_streamable_http_mcp_import_description()
+						: m.user_api_tokens_create_before_copy_hint()}
+				>
+					<button
+						type="button"
+						class="inline-flex h-9 w-9 items-center justify-center rounded-md text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-cyan-300 dark:hover:bg-cyan-950/30"
+						disabled={!createdToken}
+						aria-label={createdToken
+							? m.user_api_tokens_streamable_http_mcp_import_description()
+							: m.user_api_tokens_create_before_copy_hint()}
+						onclick={() => copyStreamableHttpMcpConfig()}
+					>
+						<Broadcast class="h-4 w-4 shrink-0" />
+					</button>
+				</span>
 				<button
 					type="button"
 					class="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -393,14 +449,6 @@
 			>
 				{creating ? m.common_loading() : m.user_api_tokens_create_action()}
 			</button>
-			<button
-				type="button"
-				class="rounded-lg bg-cyan-50 px-4 py-2 text-sm font-medium text-cyan-700 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-cyan-950/30 dark:text-cyan-300 dark:hover:bg-cyan-950/50"
-				disabled={creating}
-				onclick={() => handleCreate({ copyMcp: true })}
-			>
-				{creating ? m.common_loading() : m.user_api_tokens_create_and_copy_mcp_action()}
-			</button>
 		</div>
 
 		{#if createdToken}
@@ -422,9 +470,20 @@
 					<button
 						type="button"
 						class="rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-900 transition hover:bg-amber-100 dark:border-amber-800 dark:text-amber-100 dark:hover:bg-amber-950/40"
-						onclick={() => copyMcpImportConfig()}
+						aria-label={m.user_api_tokens_server_map_mcp_import_description()}
+						title={m.user_api_tokens_server_map_mcp_import_description()}
+						onclick={() => copyMcpServerMapConfig()}
 					>
-						{m.user_api_tokens_copy_mcp_action()}
+						{m.user_api_tokens_copy_server_map_mcp_action()}
+					</button>
+					<button
+						type="button"
+						class="rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-900 transition hover:bg-amber-100 dark:border-amber-800 dark:text-amber-100 dark:hover:bg-amber-950/40"
+						aria-label={m.user_api_tokens_streamable_http_mcp_import_description()}
+						title={m.user_api_tokens_streamable_http_mcp_import_description()}
+						onclick={() => copyStreamableHttpMcpConfig()}
+					>
+						{m.user_api_tokens_copy_streamable_http_mcp_action()}
 					</button>
 				</div>
 			</div>

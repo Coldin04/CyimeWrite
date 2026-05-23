@@ -123,7 +123,23 @@ func (s *TokenService) GenerateAndPersistTokens(tx *gorm.DB, user *models.User, 
 
 // DeliverTokensAndRedirect sets the refresh token in a secure cookie and redirects the user.
 func (s *TokenService) DeliverTokensAndRedirect(c *fiber.Ctx, accessToken, refreshToken string) error {
-	// Set the refresh token cookie
+	frontendCallbackURL := os.Getenv("FRONTEND_CALLBACK_URL")
+	if frontendCallbackURL == "" {
+		frontendCallbackURL = "http://localhost:5173/auth/callback" // Default for local dev
+	}
+
+	redirectURL := fmt.Sprintf("%s#token=%s", frontendCallbackURL, accessToken)
+	return s.DeliverTokensAndRedirectTo(c, accessToken, refreshToken, redirectURL)
+}
+
+// DeliverTokensAndRedirectTo sets the browser session cookies and redirects to
+// a prevalidated URL without exposing the access token in the redirect target.
+func (s *TokenService) DeliverTokensAndRedirectTo(c *fiber.Ctx, accessToken, refreshToken, redirectURL string) error {
+	s.setBrowserSessionCookies(c, accessToken, refreshToken)
+	return c.Redirect(redirectURL, fiber.StatusTemporaryRedirect)
+}
+
+func (s *TokenService) setBrowserSessionCookies(c *fiber.Ctx, accessToken, refreshToken string) {
 	c.Cookie(&fiber.Cookie{
 		Name:     "cyime_refresh_token",
 		Value:    refreshToken,
@@ -155,14 +171,6 @@ func (s *TokenService) DeliverTokensAndRedirect(c *fiber.Ctx, accessToken, refre
 		SameSite: "Lax",
 		Path:     "/",
 	})
-
-	frontendCallbackURL := os.Getenv("FRONTEND_CALLBACK_URL")
-	if frontendCallbackURL == "" {
-		frontendCallbackURL = "http://localhost:5173/auth/callback" // Default for local dev
-	}
-
-	redirectURL := fmt.Sprintf("%s#token=%s", frontendCallbackURL, accessToken)
-	return c.Redirect(redirectURL, fiber.StatusTemporaryRedirect)
 }
 
 func (s *TokenService) generateAccessToken(userID uuid.UUID) (string, error) {

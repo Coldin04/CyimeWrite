@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { page } from '$app/stores';
   import * as m from '$paraglide/messages';
   import { resolveApiUrl } from '$lib/config/api';
 
@@ -24,6 +25,15 @@
     const displayName = provider.displayName?.trim();
     if (displayName) return displayName;
     return formatProviderName(provider.name);
+  }
+
+  function providerLoginUrl(provider: AuthProvider): string {
+    const returnTo = $page.url.searchParams.get('return_to')?.trim();
+    if (!returnTo) return provider.ssoUrl;
+
+    const url = new URL(provider.ssoUrl);
+    url.searchParams.set('return_to', returnTo);
+    return url.toString();
   }
 
   onMount(async () => {
@@ -64,7 +74,7 @@
     <div class="flex flex-col space-y-4 py-2">
       {#each authProviders as provider, i}
         <a
-          href={provider.ssoUrl}
+          href={providerLoginUrl(provider)}
           rel="external"
           class="block w-full rounded-lg px-6 py-3 text-center text-base font-medium shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md {i ===
           0

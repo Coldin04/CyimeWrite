@@ -76,6 +76,8 @@ func main() {
 	authRoutes.Get("/config", auth.GetAuthConfig)
 	authRoutes.Get("/login/:provider", auth.AuthLogin)
 	authRoutes.Get("/callback/:provider", auth.AuthCallback)
+	authRoutes.Get("/skill/oauth/authorize", auth.SkillOAuthAuthorize)
+	authRoutes.Post("/skill/oauth/token", auth.SkillOAuthToken)
 	authRoutes.Post("/refresh", auth.HandleRefresh)
 	authRoutes.Post("/logout", auth.HandleLogout)
 	authRoutes.Get("/sessions", middleware.Protected(), auth.HandleListSessions)

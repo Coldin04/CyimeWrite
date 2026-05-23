@@ -130,6 +130,14 @@ func (t *ApiToken) BeforeCreate(tx *gorm.DB) (err error) {
 	return
 }
 
+// BeforeCreate will set a UUID rather than relying on the database to generate it.
+func (c *SkillOAuthCode) BeforeCreate(tx *gorm.DB) (err error) {
+	if c.ID == uuid.Nil {
+		c.ID = uuid.New()
+	}
+	return
+}
+
 // ApiToken stores a long-lived user-created API credential. Only a hash of the
 // raw token is persisted; the raw token is shown once at creation time.
 type ApiToken struct {
@@ -147,6 +155,23 @@ type ApiToken struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   gorm.DeletedAt `gorm:"index"`
+}
+
+// SkillOAuthCode stores a short-lived browser OAuth authorization code for
+// issuing an API token to a skill client. Only a hash of the raw code is stored.
+type SkillOAuthCode struct {
+	ID                  uuid.UUID `gorm:"type:uuid;primary_key"`
+	UserID              uuid.UUID `gorm:"not null;index"`
+	User                User      `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE;"`
+	ClientID            string    `gorm:"type:varchar(255);not null;default:''"`
+	RedirectURI         string    `gorm:"type:text;not null"`
+	CodeHash            string    `gorm:"type:varchar(64);not null;uniqueIndex"`
+	CodeChallenge       string    `gorm:"type:text;not null;default:''"`
+	CodeChallengeMethod string    `gorm:"type:varchar(16);not null;default:''"`
+	Scopes              string    `gorm:"type:text;not null"`
+	ExpiresAt           time.Time `gorm:"not null;index"`
+	UsedAt              *time.Time
+	CreatedAt           time.Time
 }
 
 // UserSession stores a logical login session for one user.

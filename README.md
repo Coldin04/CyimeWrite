@@ -65,9 +65,10 @@ Cloudflare Pages 构建如果涉及 Node 内建模块兼容，仓库内已经提
 - `packages/web`：`PUBLIC_API_BASE_URL=https://你的后端域名`
 - `packages/server`：`CORS_ALLOWED_ORIGINS=https://你的前端域名`
 - `packages/server`：`FRONTEND_CALLBACK_URL=https://你的前端域名/auth/callback`
+- `packages/server`：`PUBLIC_BASE_URL=https://你的前端域名`
 - `packages/server`：`API_BASE_URL=https://你的后端域名`
 
-这四个地址分别解决“前端请求后端”“后端允许前端跨域请求”“登录后回到前端”“后端生成自己的公网 URL”。如果使用 AI 融合能力里的 Markdown 转换服务，还需要额外配置后端到前端的内部调用：
+这些地址分别解决“前端请求后端”“后端允许前端跨域请求”“登录后回到前端”“Skill OAuth 未登录时跳到前端登录页”“后端生成自己的公网 URL”。如果使用 AI 融合能力里的 Markdown 转换服务，还需要额外配置后端到前端的内部调用：
 
 - `MARKDOWN_CONVERTER_URL=https://你的前端域名`
 - `MARKDOWN_CONVERTER_TOKEN=同一把内部共享密钥`
@@ -112,6 +113,20 @@ Cyime 提供面向 AI 客户端和外部工具的工作区集成能力：
 
 用户中心可以创建 Cyime API Token，用于支持 HTTP MCP 的客户端、脚本或其他外部工具访问 MCP/Open API。这个 token 与站点登录会话无关，应按需要授予最小权限。
 
+支持浏览器 OAuth 的 Skill 客户端可以先打开授权地址完成 Cyime 登录，再用授权码换取 scoped API Token：
+
+- Authorize：`https://你的后端域名/api/v1/auth/skill/oauth/authorize`
+- Token：`https://你的后端域名/api/v1/auth/skill/oauth/token`
+- Flow：OAuth 2.0 authorization code with PKCE
+
+Token 响应中的 `access_token` 就是后续请求使用的 Cyime API Token，应只保存在客户端 secret store 中。
+
+启用 Skill OAuth 时请确认服务端配置：
+
+- `PUBLIC_BASE_URL=https://你的前端域名`：未登录用户会先跳到 `${PUBLIC_BASE_URL}/login`。
+- `API_BASE_URL=https://你的后端域名`：后端生成 OAuth 授权 URL、OIDC 回调和 return_to 时使用。
+- `CYIME_SKILL_OAUTH_REDIRECT_URIS=...`：生产 HTTPS 回调地址 allowlist。多个地址用英文逗号分隔；本地 loopback（`localhost` / `127.0.0.1`）和 custom scheme 默认允许。
+
 常用权限范围：
 
 - `workspace:read`：读取文件/文件夹列表和搜索结果。
@@ -122,7 +137,12 @@ Cyime 提供面向 AI 客户端和外部工具的工作区集成能力：
 - `file:copy`：复制文件或文件夹。
 - `file:delete`：移动文件或文件夹到回收站。该权限具有破坏性，应仅在明确需要时开启。
 
-支持 HTTP MCP 的客户端可使用类似配置导入：
+不同 MCP 客户端会用不同配置形态包裹同一个 Cyime MCP endpoint。常见的两类是：
+
+- MCP server map：外层用 `mcpServers` 按名称管理多个 MCP server。
+- Streamable HTTP：配置对象直接描述一个 `streamable_http` MCP transport。
+
+两者使用同一个 URL 和 bearer token。
 
 ```json
 {
@@ -138,7 +158,19 @@ Cyime 提供面向 AI 客户端和外部工具的工作区集成能力：
 }
 ```
 
-不要把真实 API Token 写进仓库、README、issue、日志或公开提示词。前端用户中心里的“创建并复制 MCP”会在本地剪贴板生成导入 JSON；测试完成后可以吊销 token。
+```json
+{
+  "transport": "streamable_http",
+  "url": "https://你的后端域名/api/v1/mcp",
+  "headers": {
+    "Authorization": "Bearer <CYIME_API_TOKEN>"
+  },
+  "timeout": 5,
+  "sse_read_timeout": 300
+}
+```
+
+不要把真实 API Token 写进仓库、README、issue、日志或公开提示词。前端用户中心会在本地剪贴板生成配置模板；测试完成后可以吊销 token。
 
 #### Skill 导入
 
@@ -148,7 +180,7 @@ Cyime 提供面向 AI 客户端和外部工具的工作区集成能力：
 https://你的前端域名/skill.md
 ```
 
-Skill 会声明 MCP 优先、REST Open API 兜底，并要求客户端把 API Token 配置为 `CYIME_API_TOKEN` 这类 secret 变量。不要把 token 明文写入 `skill.md`、`manifest.json`、`openapi.json` 或聊天消息。
+Skill 会声明 MCP 优先、REST Open API 兜底，并优先通过浏览器 OAuth 获取 API Token；不支持 OAuth 的客户端仍可把 API Token 配置为 `CYIME_API_TOKEN` 这类 secret 变量。不要把 token 明文写入 `skill.md`、`manifest.json`、`openapi.json` 或聊天消息。
 
 MCP 当前包含 `cyime_search_files`、`cyime_list_files`、创建/读取/更新/增量更新 Markdown 文档、重命名、移动、复制和软删除工具。`tools/list` 会返回 `readOnlyHint`、`destructiveHint` 等 MCP annotations，方便客户端区分只读工具和需要确认的破坏性工具。
 
@@ -264,6 +296,9 @@ curl -sS http://127.0.0.1:5173/markdown/convert \
   - `ACCESS_TOKEN_LIFETIME_SECONDS`：Access Token 秒级生命周期覆盖项，优先级高于分钟配置，主要用于本地刷新链路测试。
   - `REFRESH_TOKEN_LIFETIME_HOURS`：Refresh Token 生命周期，默认 `720`（30 天）。
   - `FRONTEND_CALLBACK_URL`：登录成功后回跳到前端的地址。
+  - `PUBLIC_BASE_URL`：对外可访问的前端基础地址。Skill OAuth 未登录时会跳到 `${PUBLIC_BASE_URL}/login`。
+  - `API_BASE_URL` / `PUBLIC_API_BASE_URL`：对外可访问的后端基础地址。用于生成登录入口、OIDC 回调和 Skill OAuth return_to。
+  - `CYIME_SKILL_OAUTH_REDIRECT_URIS`：Skill OAuth 生产 HTTPS 回调地址 allowlist，多个地址用英文逗号分隔。本地 loopback 与 custom scheme 默认允许。
 
 - 文档数量限制
   - `DEFAULT_DOCUMENT_QUOTA`：全局默认文档上限。
