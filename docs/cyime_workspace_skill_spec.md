@@ -37,12 +37,32 @@ All protected API calls use:
 Authorization: Bearer <cyime_api_token>
 ```
 
-For LobeHub Skills, expose the token as a secret skill variable named `CYIME_API_TOKEN`.
+Clients that support browser OAuth should use the Cyime skill OAuth flow to obtain the bearer token:
+
+- Authorization URL: `/api/v1/auth/skill/oauth/authorize`
+- Token URL: `/api/v1/auth/skill/oauth/token`
+- Flow: OAuth 2.0 authorization code with PKCE
+- Response type: `code`
+- Grant type: `authorization_code`
+
+The user completes Cyime login in the browser. Cyime then shows a frontend-rendered consent page with the requesting client, redirect URI, requested scopes, and token lifetime. The server creates an authorization code only after the user approves. The token endpoint returns a Cyime API token as `access_token` with `token_type: Bearer`. The client stores that token in its secret store and sends it as:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+Server-side deployment configuration for browser OAuth:
+
+- `PUBLIC_BASE_URL`: externally reachable frontend origin. Anonymous authorization requests redirect to `${PUBLIC_BASE_URL}/login`.
+- `API_BASE_URL` or `PUBLIC_API_BASE_URL`: externally reachable backend origin. Used to generate auth URLs, provider callbacks, and OAuth return targets.
+- `CYIME_SKILL_OAUTH_REDIRECT_URIS`: allowlist for production HTTPS `redirect_uri` values. Separate multiple values with commas. Loopback redirect URIs (`localhost` / `127.0.0.1`) and custom schemes are allowed by default for local apps.
+
+For clients without browser OAuth, expose a manually created token as a secret skill variable named `CYIME_API_TOKEN`.
 The imported skill should instruct the client to set:
 
 - Key: `CYIME_API_TOKEN`
 - Type: secret or password text
-- Required: true
+- Required: true only for manual-token clients
 - Value: a Cyime API token created in Cyime user settings
 
 The token must never be embedded in `skill.md`, `/manifest.json`, `/openapi.json`, prompts, chat messages, generated documents, or logs. When making API requests, the client should read the secret and set:
@@ -67,6 +87,41 @@ Optional destructive scope:
 Preferred MCP endpoint:
 
 - `POST /api/v1/mcp`
+
+## MCP Client Config Shapes
+
+Clients may wrap the same MCP endpoint with different config schemas:
+
+- MCP server map: a named `mcpServers` object for clients that manage multiple servers in one config.
+- Streamable HTTP: a single transport object with `transport: "streamable_http"` for clients that configure one server directly.
+
+Both shapes use the same endpoint and bearer token:
+
+```json
+{
+  "mcpServers": {
+    "cyime-workspace": {
+      "type": "http",
+      "url": "https://api.example.test/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer <CYIME_API_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "transport": "streamable_http",
+  "url": "https://api.example.test/api/v1/mcp",
+  "headers": {
+    "Authorization": "Bearer <CYIME_API_TOKEN>"
+  },
+  "timeout": 5,
+  "sse_read_timeout": 300
+}
+```
 
 MCP tools:
 

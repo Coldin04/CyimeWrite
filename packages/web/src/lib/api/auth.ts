@@ -14,6 +14,19 @@ type AuthSessionListResponse = {
 	items: AuthSession[];
 };
 
+export type SkillOAuthRequest = {
+	id: string;
+	clientId: string;
+	redirectUri: string;
+	scopes: string[];
+	expiresAt: string;
+	tokenExpiresInSeconds: number;
+};
+
+type SkillOAuthDecisionResponse = {
+	redirectUrl: string;
+};
+
 async function parseJSONOrThrow<T>(response: Response, fallbackMessage: string): Promise<T> {
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({}));
@@ -47,4 +60,34 @@ export async function revokeOtherAuthSessions(): Promise<number> {
 		'Failed to revoke other sessions'
 	);
 	return payload.revokedCount;
+}
+
+export async function getSkillOAuthRequest(requestId: string): Promise<SkillOAuthRequest> {
+	const response = await apiFetch(`/api/v1/auth/skill/oauth/requests/${requestId}`);
+	return parseJSONOrThrow<SkillOAuthRequest>(
+		response,
+		'Failed to load authorization request'
+	);
+}
+
+export async function approveSkillOAuthRequest(requestId: string): Promise<string> {
+	const response = await apiFetch(`/api/v1/auth/skill/oauth/requests/${requestId}/approve`, {
+		method: 'POST'
+	});
+	const payload = await parseJSONOrThrow<SkillOAuthDecisionResponse>(
+		response,
+		'Failed to approve authorization request'
+	);
+	return payload.redirectUrl;
+}
+
+export async function denySkillOAuthRequest(requestId: string): Promise<string> {
+	const response = await apiFetch(`/api/v1/auth/skill/oauth/requests/${requestId}/deny`, {
+		method: 'POST'
+	});
+	const payload = await parseJSONOrThrow<SkillOAuthDecisionResponse>(
+		response,
+		'Failed to deny authorization request'
+	);
+	return payload.redirectUrl;
 }

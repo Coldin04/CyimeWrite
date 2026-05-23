@@ -1,12 +1,14 @@
 import { apiBaseUrl } from '$lib/config/api';
 
-export const skillSpecVersion = '2026-05-23.6';
+export const skillSpecVersion = '2026-05-23.9';
 
 export type SkillDocument = {
 	apiBaseUrl: string;
 	apiRootUrl: string;
 	openApiRootUrl: string;
 	mcpUrl: string;
+	oauthAuthorizeUrl: string;
+	oauthTokenUrl: string;
 	frontendOrigin: string;
 	openapiUrl: string;
 	manifestUrl: string;
@@ -18,6 +20,8 @@ export function buildSkillDocument(frontendOrigin: string): SkillDocument {
 	const apiRootUrl = `${apiBaseUrl}/api/v1`;
 	const openApiRootUrl = `${apiRootUrl}/open`;
 	const mcpUrl = `${apiRootUrl}/mcp`;
+	const oauthAuthorizeUrl = `${apiRootUrl}/auth/skill/oauth/authorize`;
+	const oauthTokenUrl = `${apiRootUrl}/auth/skill/oauth/token`;
 	const openapiUrl = `${normalizedOrigin}/openapi.json`;
 	const manifestUrl = `${normalizedOrigin}/manifest.json`;
 	const etagHash = hashForETag(`${skillSpecVersion}|${apiBaseUrl}|${normalizedOrigin}`);
@@ -27,6 +31,8 @@ export function buildSkillDocument(frontendOrigin: string): SkillDocument {
 		apiRootUrl,
 		openApiRootUrl,
 		mcpUrl,
+		oauthAuthorizeUrl,
+		oauthTokenUrl,
 		frontendOrigin: normalizedOrigin,
 		openapiUrl,
 		manifestUrl,
@@ -78,16 +84,72 @@ Use this skill to operate the user's Cyime workspace through MCP-first Markdown 
 - MCP endpoint: ${document.mcpUrl}
 - REST Open API root: ${document.openApiRootUrl}
 - REST OpenAPI: ${document.openapiUrl}
+- Browser OAuth authorize URL: ${document.oauthAuthorizeUrl}
+- Browser OAuth token URL: ${document.oauthTokenUrl}
 - Authentication: set \`Authorization: Bearer <cyime_api_token>\` on every protected request.
 - Never reveal, repeat, log, or summarize the raw API token in chat output.
 
+## MCP Client Config Shapes
+
+Different MCP clients wrap the same Cyime endpoint in different config shapes:
+
+- MCP server map: use this when the client expects a named \`mcpServers\` map. This shape is useful for clients that manage multiple MCP servers in one config object.
+- Streamable HTTP: use this when the client expects one server transport object with \`transport: "streamable_http"\`. This shape describes the HTTP MCP transport directly.
+
+Both shapes use the same endpoint and bearer token:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "cyime-workspace": {
+      "type": "http",
+      "url": "${document.mcpUrl}",
+      "headers": {
+        "Authorization": "Bearer <CYIME_API_TOKEN>"
+      }
+    }
+  }
+}
+\`\`\`
+
+\`\`\`json
+{
+  "transport": "streamable_http",
+  "url": "${document.mcpUrl}",
+  "headers": {
+    "Authorization": "Bearer <CYIME_API_TOKEN>"
+  },
+  "timeout": 5,
+  "sse_read_timeout": 300
+}
+\`\`\`
+
+## Browser OAuth Token Flow
+
+When the client supports browser OAuth, use the OAuth 2.0 authorization-code flow with PKCE:
+
+- Authorization URL: \`${document.oauthAuthorizeUrl}\`
+- Token URL: \`${document.oauthTokenUrl}\`
+- Response type: \`code\`
+- Token grant type: \`authorization_code\`
+- Recommended scopes: \`workspace:read\`, \`workspace:write\`, \`document:read\`, \`document:write\`, \`file:move\`, \`file:copy\`
+- Optional destructive scope: \`file:delete\`. Request it only when the user wants AI clients to move files to trash.
+
+The user completes Cyime login in the browser, then Cyime shows a frontend consent page with the requesting client, redirect URI, requested scopes, and token lifetime. An authorization code is created only after the user approves. The token endpoint returns a Cyime API token as \`access_token\` with \`token_type: Bearer\`. Store it in the client's secret store and send it only as \`Authorization: Bearer <access_token>\`.
+
+For deployed Cyime instances, server operators must configure:
+
+- \`PUBLIC_BASE_URL\`: externally reachable frontend origin. Anonymous authorization requests redirect to \`\${PUBLIC_BASE_URL}/login\`.
+- \`API_BASE_URL\` or \`PUBLIC_API_BASE_URL\`: externally reachable backend origin. Used to generate auth URLs, provider callbacks, and OAuth return targets.
+- \`CYIME_SKILL_OAUTH_REDIRECT_URIS\`: allowlist for production HTTPS \`redirect_uri\` values. Separate multiple values with commas. Loopback redirect URIs (\`localhost\` / \`127.0.0.1\`) and custom schemes are allowed by default.
+
 ## LobeHub Skill Token Configuration
 
-When importing this skill into LobeHub Skills, configure a secret skill variable:
+When browser OAuth is unavailable, configure a secret skill variable:
 
 - Key: \`CYIME_API_TOKEN\`
 - Type: secret or password text
-- Required: true
+- Required: false when browser OAuth is available; true for manual-token clients
 - Value: a Cyime API token created in Cyime user settings
 - Recommended scopes: \`workspace:read\`, \`workspace:write\`, \`document:read\`, \`document:write\`, \`file:move\`, \`file:copy\`
 - Optional destructive scope: \`file:delete\`. Enable it only when the user wants AI clients to move files to trash.
@@ -213,20 +275,48 @@ export function buildSkillManifest(document: SkillDocument) {
 		apiBaseUrl: document.openApiRootUrl,
 		restApiRootUrl: document.openApiRootUrl,
 		openapiUrl: document.openapiUrl,
+		mcpConfigTemplates: mcpConfigTemplates(document),
 		auth: {
-			type: 'http',
+			type: 'oauth2',
+			flow: 'authorization_code_pkce',
+			authorizationUrl: document.oauthAuthorizeUrl,
+			tokenUrl: document.oauthTokenUrl,
 			scheme: 'bearer',
 			header: 'Authorization',
-			description: 'Use a Cyime API token as: Authorization: Bearer <token>. For LobeHub Skills, configure it as the secret CYIME_API_TOKEN.'
+			description:
+				'Use browser OAuth to obtain a Cyime API token, then send it as Authorization: Bearer <token>. Manual CYIME_API_TOKEN secrets remain supported.'
+		},
+		oauth: {
+			type: 'oauth2',
+			flow: 'authorization_code_pkce',
+			authorizationUrl: document.oauthAuthorizeUrl,
+			tokenUrl: document.oauthTokenUrl,
+			responseType: 'code',
+			grantType: 'authorization_code',
+			tokenType: 'Bearer',
+			scopes: oauthScopes(),
+			defaultScopes: [
+				'workspace:read',
+				'workspace:write',
+				'document:read',
+				'document:write',
+				'file:move',
+				'file:copy'
+			],
+			deploymentConfig: {
+				publicBaseUrl: 'PUBLIC_BASE_URL',
+				publicApiBaseUrl: 'API_BASE_URL or PUBLIC_API_BASE_URL',
+				redirectUriAllowlist: 'CYIME_SKILL_OAUTH_REDIRECT_URIS'
+			}
 		},
 		tokenConfig: {
 			environmentVariable: 'CYIME_API_TOKEN',
 			type: 'secret',
-			required: true,
+			required: false,
 			header: 'Authorization',
 			valueTemplate: 'Bearer ${CYIME_API_TOKEN}',
 			description:
-				'Configure CYIME_API_TOKEN as a LobeHub skill secret or client environment secret. Never publish the token in skill.md or manifest.json.'
+				'Fallback for clients without browser OAuth. Configure CYIME_API_TOKEN as a LobeHub skill secret or client environment secret. Never publish the token in skill.md or manifest.json.'
 		},
 		instructions: [
 			'Use Cyime proactively when the user works with Cyime documents, notes, folders, drafts, or persistent writing output.',
@@ -264,7 +354,7 @@ export function buildOpenAPISpec(document: SkillDocument) {
 			description: 'REST fallback for Markdown-first Cyime workspace integrations. Prefer MCP when available.'
 		},
 		servers: [{ url: document.apiBaseUrl }],
-		security: [{ BearerAuth: [] }],
+		security: [{ CyimeSkillOAuth: [] }, { BearerAuth: [] }],
 		paths: {
 			'/api/v1/open/files': {
 				get: withParameters(
@@ -389,6 +479,18 @@ export function buildOpenAPISpec(document: SkillDocument) {
 		},
 		components: {
 			securitySchemes: {
+				CyimeSkillOAuth: {
+					type: 'oauth2',
+					description:
+						'Browser OAuth authorization-code flow with PKCE. The token response access_token is a Cyime API token used as a Bearer token.',
+					flows: {
+						authorizationCode: {
+							authorizationUrl: document.oauthAuthorizeUrl,
+							tokenUrl: document.oauthTokenUrl,
+							scopes: oauthScopes()
+						}
+					}
+				},
 				BearerAuth: {
 					type: 'http',
 					scheme: 'bearer',
@@ -398,6 +500,53 @@ export function buildOpenAPISpec(document: SkillDocument) {
 				}
 			}
 		}
+	};
+}
+
+function mcpConfigTemplates(document: SkillDocument) {
+	return {
+		serverMap: {
+			name: 'MCP server map',
+			description:
+				'For clients that keep multiple MCP servers in one named mcpServers object keyed by server id.',
+			config: {
+				mcpServers: {
+					'cyime-workspace': {
+						type: 'http',
+						url: document.mcpUrl,
+						headers: {
+							Authorization: 'Bearer ${CYIME_API_TOKEN}'
+						}
+					}
+				}
+			}
+		},
+		streamableHttp: {
+			name: 'Streamable HTTP',
+			description:
+				'For clients that configure one MCP server as a direct Streamable HTTP transport object.',
+			config: {
+				transport: 'streamable_http',
+				url: document.mcpUrl,
+				headers: {
+					Authorization: 'Bearer ${CYIME_API_TOKEN}'
+				},
+				timeout: 5,
+				sse_read_timeout: 300
+			}
+		}
+	};
+}
+
+function oauthScopes() {
+	return {
+		'workspace:read': 'Read workspace folders, documents, and search results.',
+		'workspace:write': 'Create folders, create documents, and rename workspace items.',
+		'document:read': 'Read Markdown document content.',
+		'document:write': 'Create or update Markdown document content.',
+		'file:move': 'Move files or folders.',
+		'file:copy': 'Copy files or folders.',
+		'file:delete': 'Move files or folders to trash. Request only when needed.'
 	};
 }
 
@@ -412,6 +561,7 @@ function operation(
 		operationId,
 		summary,
 		'x-cyime-scopes': scopes,
+		security: [{ CyimeSkillOAuth: scopes }, { BearerAuth: [] }],
 		responses: {
 			'200': jsonResponse(responseSchema),
 			'201': jsonResponse(responseSchema),

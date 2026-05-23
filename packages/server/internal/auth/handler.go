@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +29,9 @@ import (
 
 var tokenService *TokenService
 var tokenServiceMu sync.Mutex
+
+const authReturnToCookieName = "cyime_auth_return_to"
+const authReturnToAllowedPath = "/api/v1/auth/skill/oauth/authorize"
 
 func getTokenService() (*TokenService, error) {
 	tokenServiceMu.Lock()
@@ -108,6 +113,14 @@ func GetAuthConfig(c *fiber.Ctx) error {
 func AuthLogin(c *fiber.Ctx) error {
 	providerName := c.Params("provider")
 	ctx := c.Context()
+
+	if returnTo := strings.TrimSpace(c.Query("return_to")); returnTo != "" {
+		normalizedReturnTo, err := normalizeAuthReturnTo(returnTo)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		setAuthReturnToCookie(c, normalizedReturnTo)
+	}
 
 	var dbProvider models.AuthProvider
 	if err := database.DB.Where("name = ? AND is_active = ?", providerName, true).First(&dbProvider).Error; err != nil {
@@ -207,6 +220,10 @@ func AuthCallback(c *fiber.Ctx) error {
 
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if returnTo := consumeAuthReturnTo(c); returnTo != "" {
+		return svc.DeliverTokensAndRedirectTo(c, accessToken, refreshToken, returnTo)
 	}
 
 	// Step 3: Deliver tokens to the client and redirect.
@@ -505,6 +522,90 @@ func verifyState(c *fiber.Ctx) error {
 		Path:     "/api/v1/auth",
 	})
 	return nil
+}
+
+func setAuthReturnToCookie(c *fiber.Ctx, returnTo string) {
+	c.Cookie(&fiber.Cookie{
+		Name:     authReturnToCookieName,
+		Value:    base64.RawURLEncoding.EncodeToString([]byte(returnTo)),
+		Expires:  time.Now().Add(10 * time.Minute),
+		HTTPOnly: true,
+		Secure:   c.Protocol() == "https",
+		SameSite: "Lax",
+		Path:     "/api/v1/auth",
+	})
+}
+
+func consumeAuthReturnTo(c *fiber.Ctx) string {
+	encoded := c.Cookies(authReturnToCookieName)
+	c.Cookie(&fiber.Cookie{
+		Name:     authReturnToCookieName,
+		Value:    "",
+		Expires:  time.Now().Add(-time.Hour),
+		HTTPOnly: true,
+		Secure:   c.Protocol() == "https",
+		SameSite: "Lax",
+		Path:     "/api/v1/auth",
+	})
+
+	if encoded == "" {
+		return ""
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return ""
+	}
+	returnTo, err := normalizeAuthReturnTo(string(decoded))
+	if err != nil {
+		return ""
+	}
+	return returnTo
+}
+
+func normalizeAuthReturnTo(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", fmt.Errorf("return_to is empty")
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid return_to")
+	}
+
+	if parsed.IsAbs() {
+		apiBase, err := url.Parse(getAPIBaseURL())
+		if err != nil {
+			return "", fmt.Errorf("invalid public API base URL")
+		}
+		if !sameURLOrigin(parsed, apiBase) {
+			return "", fmt.Errorf("return_to origin is not allowed")
+		}
+		if !isAllowedAuthReturnToPath(parsed.Path) {
+			return "", fmt.Errorf("return_to path is not allowed")
+		}
+		return parsed.String(), nil
+	}
+
+	if parsed.Scheme != "" || parsed.Host != "" || strings.HasPrefix(value, "//") {
+		return "", fmt.Errorf("return_to path is not allowed")
+	}
+	if !isAllowedAuthReturnToPath(parsed.Path) {
+		return "", fmt.Errorf("return_to path is not allowed")
+	}
+	return getAPIBaseURL() + value, nil
+}
+
+func isAllowedAuthReturnToPath(rawPath string) bool {
+	if rawPath == "" {
+		return false
+	}
+	cleaned := path.Clean(rawPath)
+	return cleaned == authReturnToAllowedPath && rawPath == cleaned
+}
+
+func sameURLOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
 func getUserProfile(ctx context.Context, provider *models.AuthProvider, oauth2Config *oauth2.Config, token *oauth2.Token) (*UserProfile, error) {

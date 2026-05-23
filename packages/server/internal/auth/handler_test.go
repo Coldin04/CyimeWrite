@@ -39,7 +39,7 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.AuthProvider{}, &models.UserSession{}, &models.UserRefreshToken{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.AuthProvider{}, &models.ApiToken{}, &models.SkillOAuthCode{}, &models.SkillOAuthRequest{}, &models.UserSession{}, &models.UserRefreshToken{}); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
 	database.DB = db
@@ -493,5 +493,32 @@ func TestGetUserProfile_GitHubIgnoresUnverifiedUserEmailWithoutVerifiedEmailReco
 	}
 	if profile.EmailVerified {
 		t.Fatalf("expected github email to remain unverified")
+	}
+}
+
+func TestNormalizeAuthReturnTo_RejectsPathTraversal(t *testing.T) {
+	t.Setenv("PUBLIC_API_BASE_URL", "https://api.example.test")
+
+	cases := []string{
+		"/api/v1/auth/skill/oauth/authorize/../logout",
+		"https://api.example.test/api/v1/auth/skill/oauth/authorize/../logout",
+	}
+
+	for _, input := range cases {
+		if _, err := normalizeAuthReturnTo(input); err == nil {
+			t.Fatalf("expected return_to %q to be rejected", input)
+		}
+	}
+}
+
+func TestNormalizeAuthReturnTo_AllowsExactAuthorizePath(t *testing.T) {
+	t.Setenv("PUBLIC_API_BASE_URL", "https://api.example.test")
+
+	normalized, err := normalizeAuthReturnTo("/api/v1/auth/skill/oauth/authorize?client_id=lobe")
+	if err != nil {
+		t.Fatalf("normalizeAuthReturnTo returned error: %v", err)
+	}
+	if normalized != "https://api.example.test/api/v1/auth/skill/oauth/authorize?client_id=lobe" {
+		t.Fatalf("normalized = %q", normalized)
 	}
 }

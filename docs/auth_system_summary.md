@@ -94,4 +94,9 @@
 - `REFRESH_TOKEN_LIFETIME_HOURS`
 - `ACCESS_TOKEN_LIFETIME_MINUTES`
 - `FRONTEND_CALLBACK_URL`
+- `PUBLIC_BASE_URL` / `FRONTEND_BASE_URL`
+- `API_BASE_URL` / `PUBLIC_API_BASE_URL`
 - `CORS_ALLOWED_ORIGINS`
+- `CYIME_SKILL_OAUTH_REDIRECT_URIS`
+
+Skill OAuth 需要前端与后端公网地址都配置正确：未登录授权请求会跳转到 `${PUBLIC_BASE_URL}/login`，登录后会进入前端渲染的授权确认页；只有用户确认后，后端才会生成 authorization code。授权回调和 return target 会使用后端公网地址。生产环境中的 HTTPS `redirect_uri` 必须写入 `CYIME_SKILL_OAUTH_REDIRECT_URIS`；本地 loopback 与 custom scheme 默认允许。
