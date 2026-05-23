@@ -131,7 +131,13 @@
 	});
 
 	function loadDocumentExportWorkflow(): Promise<DocumentExportWorkflow> {
-		documentExportWorkflowPromise ??= import('$lib/export/documentExportWorkflow');
+		if (!documentExportWorkflowPromise) {
+			documentExportWorkflowPromise = import('$lib/export/documentExportWorkflow').catch((error) => {
+				documentExportWorkflowPromise = null;
+				throw error;
+			});
+		}
+
 		return documentExportWorkflowPromise;
 	}
 
