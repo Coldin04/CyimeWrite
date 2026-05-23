@@ -2,4 +2,4 @@ name = "cyimewrite-web"
 pages_build_output_dir = ".svelte-kit/cloudflare"
 compatibility_date = "2026-04-04"
 compatibility_flags = ["nodejs_compat"]
-upload_source_maps = true
+upload_source_maps = false
