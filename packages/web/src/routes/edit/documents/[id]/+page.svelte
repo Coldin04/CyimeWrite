@@ -45,13 +45,16 @@
 		collectImageNodes,
 		collectManagedImages,
 		cloneContentJson,
-		ExportCopyError,
-		exportPdfDocument,
-		exportHtmlDocument,
 		getManagedAssetId,
 		inferExportAssetMimeType,
+		normalizeManagedImagesForSave,
+		replaceManagedImagesWithPublicURLs
+	} from '$lib/export/managedImages';
+	import {
+		ExportCopyError,
+		exportHtmlDocument,
+		exportPdfDocument,
 		inlineManagedImagesAsDataURLs,
-		replaceManagedImagesWithPublicURLs,
 		runExportAction
 	} from '$lib/export/exportPrivateImages';
 	import { exportActionRequiresPublicImageURLs } from '$lib/export/exportActions';
@@ -207,25 +210,6 @@
 				continue;
 			}
 			attrs.src = resolvedURL;
-			node.attrs = attrs;
-		}
-
-		return cloned;
-	}
-
-	function normalizeManagedImagesForSave(input: JSONContent): JSONContent {
-		const cloned = cloneContentJson(input);
-		const imageNodes: ImageNodeRecord[] = [];
-		collectImageNodes(cloned, imageNodes);
-
-		for (const node of imageNodes) {
-			const attrs = (node.attrs ?? {}) as Record<string, unknown>;
-			const assetId = getManagedAssetId(attrs);
-			if (!assetId) {
-				continue;
-			}
-
-			delete attrs.src;
 			node.attrs = attrs;
 		}
 

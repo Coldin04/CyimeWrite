@@ -36,17 +36,12 @@
 	} from '$lib/api/editor';
 	import type { ExportAction } from '$lib/export/exportActions';
 	import { exportActionRequiresPublicImageURLs } from '$lib/export/exportActions';
-	import { collectManagedImages } from '$lib/export/exportPrivateImages';
-	import {
-		createExportCopyTitle,
-		normalizeManagedImagesForSave,
-		performDocumentExport,
-		prepareExportContentWithPublicImages,
-		resolveExportErrorMessage
-	} from '$lib/export/documentExportWorkflow';
+	import { collectManagedImages } from '$lib/export/managedImages';
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import * as m from '$paraglide/messages';
 	import { getLocale } from '$paraglide/runtime';
+
+	type DocumentExportWorkflow = typeof import('$lib/export/documentExportWorkflow');
 
 	let {
 		item,
@@ -122,6 +117,7 @@
 	const menuStyle = $derived(
 		menuPlacement === 'context' ? `left: ${contextMenuX}px; top: ${contextMenuY}px;` : ''
 	);
+	let documentExportWorkflowPromise: Promise<DocumentExportWorkflow> | null = null;
 
 	$effect(() => {
 		documentTitle = item.title || '';
@@ -133,6 +129,20 @@
 		documentPublicUrl = item.publicUrl || '';
 		documentRole = item.myRole || 'owner';
 	});
+
+	function loadDocumentExportWorkflow(): Promise<DocumentExportWorkflow> {
+		documentExportWorkflowPromise ??= import('$lib/export/documentExportWorkflow');
+		return documentExportWorkflowPromise;
+	}
+
+	async function resolveWorkspaceExportErrorMessage(error: unknown): Promise<string> {
+		try {
+			const workflow = await loadDocumentExportWorkflow();
+			return workflow.resolveExportErrorMessage(error);
+		} catch {
+			return error instanceof Error && error.message.trim() !== '' ? error.message : m.editor_export_failed();
+		}
+	}
 
 	function formatRelativeTime(dateString: string): string {
 		const date = new Date(dateString);
@@ -390,7 +400,8 @@
 		pendingExportAction = null;
 		pendingExportContent = null;
 		exportTargetId = '';
-		await performDocumentExport({
+		const workflow = await loadDocumentExportWorkflow();
+		await workflow.performDocumentExport({
 			action,
 			title: documentTitle,
 			contentJson: exportContent,
@@ -406,15 +417,16 @@
 			if (!pendingExportContent) {
 				throw new Error('Missing export content');
 			}
-			const exportContent = await prepareExportContentWithPublicImages({
+			const workflow = await loadDocumentExportWorkflow();
+			const exportContent = await workflow.prepareExportContentWithPublicImages({
 				documentId: item.id,
 				contentJson: pendingExportContent,
 				targetId: exportTargetId,
 				toastId: 'workspace-export-private-images'
 			});
 			await createDocument({
-				title: createExportCopyTitle(documentTitle),
-				contentJson: normalizeManagedImagesForSave(exportContent) as { [key: string]: unknown },
+				title: workflow.createExportCopyTitle(documentTitle),
+				contentJson: workflow.normalizeManagedImagesForSave(exportContent) as { [key: string]: unknown },
 				folderId: item.folderId ?? null,
 				documentType: documentType === 'table' ? 'table' : 'rich_text',
 				preferredImageTargetId: exportTargetId
@@ -423,7 +435,7 @@
 			await finalizeExportWithProcessedContent(exportContent);
 		} catch (error) {
 			console.error('[Workspace Export] Failed to create export copy:', error);
-			toast.error(resolveExportErrorMessage(error));
+			toast.error(await resolveWorkspaceExportErrorMessage(error));
 		} finally {
 			isPreparingExport = false;
 		}
@@ -437,20 +449,21 @@
 			if (!pendingExportContent) {
 				throw new Error('Missing export content');
 			}
-			const exportContent = await prepareExportContentWithPublicImages({
+			const workflow = await loadDocumentExportWorkflow();
+			const exportContent = await workflow.prepareExportContentWithPublicImages({
 				documentId: item.id,
 				contentJson: pendingExportContent,
 				targetId: exportTargetId,
 				toastId: 'workspace-export-private-images'
 			});
-			await updateDocumentContent(item.id, normalizeManagedImagesForSave(exportContent));
+			await updateDocumentContent(item.id, workflow.normalizeManagedImagesForSave(exportContent));
 			const targetResult = await updateDocumentImageTarget(item.id, exportTargetId);
 			documentPreferredImageTargetId = targetResult.preferredImageTargetId;
 			onRefresh?.();
 			await finalizeExportWithProcessedContent(exportContent);
 		} catch (error) {
 			console.error('[Workspace Export] Failed to replace private images for export:', error);
-			toast.error(resolveExportErrorMessage(error));
+			toast.error(await resolveWorkspaceExportErrorMessage(error));
 		} finally {
 			isPreparingExport = false;
 		}
@@ -467,7 +480,8 @@
 			const managedImages = collectManagedImages(exportContent);
 
 			if (!exportActionRequiresPublicImageURLs(action) || managedImages.length === 0) {
-				await performDocumentExport({
+				const workflow = await loadDocumentExportWorkflow();
+				await workflow.performDocumentExport({
 					action,
 					title: documentTitle,
 					contentJson: exportContent,
