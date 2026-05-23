@@ -886,19 +886,29 @@ export async function batchCopyFiles(
 }> {
 	const failedItems: { id: string; type: string; reason: string }[] = [];
 	let copiedCount = 0;
+	const concurrencyLimit = Math.min(4, items.length);
+	let nextIndex = 0;
 
-	for (const item of items) {
-		try {
-			await copyFile(item.id, item.type, destinationFolderId);
-			copiedCount += 1;
-		} catch (error) {
-			failedItems.push({
-				id: item.id,
-				type: item.type,
-				reason: error instanceof Error ? error.message : 'Failed to copy file'
-			});
+	const workers = Array.from({ length: concurrencyLimit }, async () => {
+		while (nextIndex < items.length) {
+			const currentIndex = nextIndex;
+			nextIndex += 1;
+			const item = items[currentIndex];
+			if (!item) continue;
+			try {
+				await copyFile(item.id, item.type, destinationFolderId);
+				copiedCount += 1;
+			} catch (error) {
+				failedItems.push({
+					id: item.id,
+					type: item.type,
+					reason: error instanceof Error ? error.message : 'Failed to copy file'
+				});
+			}
 		}
-	}
+	});
+
+	await Promise.all(workers);
 
 	return {
 		success: failedItems.length === 0,
