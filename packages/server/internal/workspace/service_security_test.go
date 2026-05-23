@@ -355,6 +355,78 @@ func TestBatchMoveFiles_MixedOwnedAndForeignDocuments_OnlyMovesOwned(t *testing.
 	}
 }
 
+func TestCopyFile_DocumentCreatesIndependentCopy(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	docID := seedDocumentForWorkspace(t, db, ownerID, "source-doc")
+
+	item, err := CopyFile(ownerID, docID, "document", nil, "")
+	if err != nil {
+		t.Fatalf("CopyFile returned error: %v", err)
+	}
+	if item.Type != "document" {
+		t.Fatalf("copied type = %q, want document", item.Type)
+	}
+	if item.ID == docID {
+		t.Fatal("copied document reused source id")
+	}
+	if item.Name != "source-doc 副本" {
+		t.Fatalf("copied name = %q, want source-doc 副本", item.Name)
+	}
+
+	var copiedBody models.DocumentBody
+	if err := db.Where("document_id = ?", item.ID).First(&copiedBody).Error; err != nil {
+		t.Fatalf("load copied body: %v", err)
+	}
+	if !strings.Contains(copiedBody.ContentJSON, "seed") {
+		t.Fatalf("copied content did not include source content: %s", copiedBody.ContentJSON)
+	}
+}
+
+func TestCopyFile_FolderCopiesTree(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	rootID := seedFolderWithParentForWorkspace(t, db, ownerID, "project", nil)
+	childID := seedFolderWithParentForWorkspace(t, db, ownerID, "notes", &rootID)
+	docID := seedDocumentForWorkspace(t, db, ownerID, "meeting")
+	if err := db.Model(&models.Document{}).Where("id = ?", docID).Update("folder_id", childID).Error; err != nil {
+		t.Fatalf("move seed document into child folder: %v", err)
+	}
+
+	item, err := CopyFile(ownerID, rootID, "folder", nil, "")
+	if err != nil {
+		t.Fatalf("CopyFile returned error: %v", err)
+	}
+	if item.Type != "folder" || item.Name != "project 副本" {
+		t.Fatalf("unexpected copied folder item: %+v", item)
+	}
+
+	var copiedChild models.Folder
+	if err := db.Where("parent_id = ? AND owner_user_id = ? AND name = ?", item.ID, ownerID, "notes").First(&copiedChild).Error; err != nil {
+		t.Fatalf("load copied child folder: %v", err)
+	}
+
+	var copiedDoc models.Document
+	if err := db.Where("folder_id = ? AND owner_user_id = ? AND title = ?", copiedChild.ID, ownerID, "meeting").First(&copiedDoc).Error; err != nil {
+		t.Fatalf("load copied document: %v", err)
+	}
+	if copiedDoc.ID == docID {
+		t.Fatal("copied folder tree reused source document id")
+	}
+}
+
+func TestCopyFile_FolderRejectsDestinationInsideSourceTree(t *testing.T) {
+	db := setupWorkspaceTestDB(t)
+	ownerID := uuid.New()
+	rootID := seedFolderWithParentForWorkspace(t, db, ownerID, "project", nil)
+	childID := seedFolderWithParentForWorkspace(t, db, ownerID, "notes", &rootID)
+
+	_, err := CopyFile(ownerID, rootID, "folder", &childID, "")
+	if !errors.Is(err, ErrFolderMoveCycle) {
+		t.Fatalf("error = %v, want ErrFolderMoveCycle", err)
+	}
+}
+
 func TestDeleteFile_Document_DeniesCrossUserAccessAndKeepsRow(t *testing.T) {
 	db := setupWorkspaceTestDB(t)
 	ownerID := uuid.New()

@@ -14,10 +14,12 @@
 
 	let {
 		navItems,
-		children
+		children,
+		flatMobile = false
 	}: {
 		navItems: NavItem[];
 		children: import('svelte').Snippet;
+		flatMobile?: boolean;
 	} = $props();
 
 	let mobileNavOpen = $state(false);
@@ -35,7 +37,7 @@
 
 <TopBar />
 <main class="grid min-h-[calc(100vh-4rem)] grid-cols-1 gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-0 lg:px-0 lg:py-0">
-	<aside class="rounded-xl border border-zinc-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-900 lg:hidden">
+	<aside class={flatMobile ? 'border-b border-zinc-200 pb-3 dark:border-zinc-800 lg:hidden' : 'rounded-xl border border-zinc-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-900 lg:hidden'}>
 		<button
 			type="button"
 			class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left"
@@ -102,7 +104,7 @@
 		</nav>
 	</aside>
 
-	<section class="min-w-0 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 sm:p-6 lg:min-h-[calc(100vh-4rem)] lg:rounded-none lg:border-0 lg:bg-transparent lg:p-8 xl:p-10">
+	<section class={flatMobile ? 'min-w-0 bg-transparent lg:min-h-[calc(100vh-4rem)] lg:rounded-none lg:border-0 lg:bg-transparent lg:p-8 xl:p-10' : 'min-w-0 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 sm:p-6 lg:min-h-[calc(100vh-4rem)] lg:rounded-none lg:border-0 lg:bg-transparent lg:p-8 xl:p-10'}>
 		<div class="mx-auto w-full max-w-7xl">
 			{@render children()}
 		</div>

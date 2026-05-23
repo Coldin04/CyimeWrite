@@ -7,10 +7,13 @@ import (
 	"strings"
 
 	"g.co1d.in/Coldin04/Cyime/server/internal/admin"
+	"g.co1d.in/Coldin04/Cyime/server/internal/ai"
+	"g.co1d.in/Coldin04/Cyime/server/internal/apitoken"
 	"g.co1d.in/Coldin04/Cyime/server/internal/auth"
 	"g.co1d.in/Coldin04/Cyime/server/internal/config"
 	"g.co1d.in/Coldin04/Cyime/server/internal/content"
 	"g.co1d.in/Coldin04/Cyime/server/internal/database"
+	"g.co1d.in/Coldin04/Cyime/server/internal/mcp"
 	"g.co1d.in/Coldin04/Cyime/server/internal/media"
 	"g.co1d.in/Coldin04/Cyime/server/internal/middleware"
 	"g.co1d.in/Coldin04/Cyime/server/internal/securevalue"
@@ -88,6 +91,10 @@ func main() {
 	userRoutes.Post("/image-beds", user.CreateImageBedConfigHandler)
 	userRoutes.Put("/image-beds/:id", user.UpdateImageBedConfigHandler)
 	userRoutes.Delete("/image-beds/:id", user.DeleteImageBedConfigHandler)
+	userRoutes.Get("/api-tokens", apitoken.ListTokensHandler)
+	userRoutes.Post("/api-tokens", apitoken.CreateTokenHandler)
+	userRoutes.Put("/api-tokens/:id", apitoken.UpdateTokenHandler)
+	userRoutes.Delete("/api-tokens/:id", apitoken.RevokeTokenHandler)
 	userRoutes.Put("/profile", user.UpdateProfileHandler)
 	userRoutes.Post("/avatar", user.UploadAvatarHandler)
 	userRoutes.Put("/avatar/github", user.UpdateGitHubAvatarHandler)
@@ -177,6 +184,21 @@ func main() {
 	notificationRoutes.Get("/", workspace.ListNotificationsHandler)
 	notificationRoutes.Delete("/", workspace.ClearNotificationsHandler)
 	notificationRoutes.Post("/:id/read", workspace.MarkNotificationReadHandler)
+
+	// Open integration routes authenticate with user-created API tokens.
+	openRoutes := api.Group("/open")
+	openRoutes.Get("/files", apitoken.Protected(apitoken.ScopeWorkspaceRead), workspace.GetFilesHandler)
+	openRoutes.Post("/folders", apitoken.Protected(apitoken.ScopeWorkspaceWrite), ai.CreateFolderHandler)
+	openRoutes.Patch("/files/:id", apitoken.Protected(apitoken.ScopeWorkspaceWrite), ai.RenameFileHandler)
+	openRoutes.Put("/files/:id/move", apitoken.Protected(apitoken.ScopeFileMove), ai.MoveFileHandler)
+	openRoutes.Post("/files/:id/copy", apitoken.Protected(apitoken.ScopeFileCopy, apitoken.ScopeWorkspaceWrite), ai.CopyFileHandler)
+	openRoutes.Post("/documents", apitoken.Protected(apitoken.ScopeWorkspaceWrite, apitoken.ScopeDocumentWrite), ai.CreateMarkdownDocumentHandler)
+	openRoutes.Get("/documents/:id/content", apitoken.Protected(apitoken.ScopeDocumentRead), ai.GetDocumentMarkdownHandler)
+	openRoutes.Put("/documents/:id/content", apitoken.Protected(apitoken.ScopeDocumentWrite), ai.UpdateDocumentMarkdownHandler)
+	openRoutes.Patch("/documents/:id/content", apitoken.Protected(apitoken.ScopeDocumentRead, apitoken.ScopeDocumentWrite), ai.PatchDocumentMarkdownHandler)
+
+	api.Post("/mcp", apitoken.Protected(), mcp.Handle)
+	api.Post("/mcp/", apitoken.Protected(), mcp.Handle)
 
 	// Public document read routes (no authentication)
 	publicRoutes := api.Group("/public", middleware.OptionalProtected())
