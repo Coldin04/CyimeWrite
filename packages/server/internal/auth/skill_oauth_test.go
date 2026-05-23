@@ -19,9 +19,19 @@ import (
 	"github.com/google/uuid"
 )
 
-func newSkillOAuthTestApp() *fiber.App {
+func newSkillOAuthTestApp(protectedUserID uuid.UUID) *fiber.App {
 	app := fiber.New()
 	app.Get("/api/v1/auth/skill/oauth/authorize", SkillOAuthAuthorize)
+	protected := func(c *fiber.Ctx) error {
+		if protectedUserID == uuid.Nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "test user required"})
+		}
+		c.Locals("userId", protectedUserID.String())
+		return c.Next()
+	}
+	app.Get("/api/v1/auth/skill/oauth/requests/:id", protected, SkillOAuthGetRequest)
+	app.Post("/api/v1/auth/skill/oauth/requests/:id/approve", protected, SkillOAuthApproveRequest)
+	app.Post("/api/v1/auth/skill/oauth/requests/:id/deny", protected, SkillOAuthDenyRequest)
 	app.Post("/api/v1/auth/skill/oauth/token", SkillOAuthToken)
 	return app
 }
@@ -34,7 +44,9 @@ func TestSkillOAuthFlowIssuesAPIToken(t *testing.T) {
 	}
 	seedSessionWithToken(t, db, userID, "Mozilla/5.0 Chrome", time.Now(), "refresh-token")
 
-	app := newSkillOAuthTestApp()
+	t.Setenv("PUBLIC_BASE_URL", "https://cyime.example")
+
+	app := newSkillOAuthTestApp(userID)
 	redirectURI := "http://127.0.0.1:4173/oauth/callback"
 	codeVerifier := "correct-horse-battery-staple"
 	params := url.Values{}
@@ -60,15 +72,68 @@ func TestSkillOAuthFlowIssuesAPIToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse authorize location: %v", err)
 	}
-	if location.Scheme != "http" || location.Host != "127.0.0.1:4173" {
-		t.Fatalf("unexpected redirect location: %s", location.String())
+	if location.Scheme != "https" || location.Host != "cyime.example" || location.Path != "/auth/skill/consent" {
+		t.Fatalf("unexpected consent redirect location: %s", location.String())
 	}
-	code := location.Query().Get("code")
+	requestID := location.Query().Get("request_id")
+	if requestID == "" {
+		t.Fatal("consent redirect did not include request_id")
+	}
+	var codeCount int64
+	if err := db.Model(&models.SkillOAuthCode{}).Count(&codeCount).Error; err != nil {
+		t.Fatalf("count authorization codes: %v", err)
+	}
+	if codeCount != 0 {
+		t.Fatalf("authorization code should not exist before user consent, got %d", codeCount)
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/api/v1/auth/skill/oauth/requests/"+requestID, nil)
+	detailResp, err := app.Test(detailReq, -1)
+	if err != nil {
+		t.Fatalf("request detail failed: %v", err)
+	}
+	if detailResp.StatusCode != http.StatusOK {
+		t.Fatalf("request detail status = %d, want 200", detailResp.StatusCode)
+	}
+	var detail skillOAuthRequestResponse
+	if err := json.NewDecoder(detailResp.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode request detail: %v", err)
+	}
+	if detail.ClientID != "lobe-skill" || detail.RedirectURI != redirectURI {
+		t.Fatalf("unexpected request detail: %+v", detail)
+	}
+	if !apitoken.HasScopes(detail.Scopes, apitoken.ScopeWorkspaceRead, apitoken.ScopeDocumentRead) {
+		t.Fatalf("unexpected request scopes: %#v", detail.Scopes)
+	}
+
+	approveReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/skill/oauth/requests/"+requestID+"/approve", nil)
+	approveResp, err := app.Test(approveReq, -1)
+	if err != nil {
+		t.Fatalf("approve request failed: %v", err)
+	}
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve status = %d, want 200", approveResp.StatusCode)
+	}
+	var approvePayload struct {
+		RedirectURL string `json:"redirectUrl"`
+	}
+	if err := json.NewDecoder(approveResp.Body).Decode(&approvePayload); err != nil {
+		t.Fatalf("decode approve response: %v", err)
+	}
+
+	callbackURL, err := url.Parse(approvePayload.RedirectURL)
+	if err != nil {
+		t.Fatalf("parse approve redirect URL: %v", err)
+	}
+	if callbackURL.Scheme != "http" || callbackURL.Host != "127.0.0.1:4173" {
+		t.Fatalf("unexpected approve redirect location: %s", callbackURL.String())
+	}
+	code := callbackURL.Query().Get("code")
 	if code == "" {
-		t.Fatal("authorization redirect did not include code")
+		t.Fatal("approve redirect did not include code")
 	}
-	if location.Query().Get("state") != "opaque-state" {
-		t.Fatalf("state = %q, want opaque-state", location.Query().Get("state"))
+	if callbackURL.Query().Get("state") != "opaque-state" {
+		t.Fatalf("state = %q, want opaque-state", callbackURL.Query().Get("state"))
 	}
 
 	form := url.Values{}
@@ -143,7 +208,7 @@ func TestSkillOAuthAuthorizeRedirectsAnonymousUserToLogin(t *testing.T) {
 	setupAuthTestDB(t)
 	t.Setenv("PUBLIC_BASE_URL", "https://cyime.example")
 
-	app := newSkillOAuthTestApp()
+	app := newSkillOAuthTestApp(uuid.Nil)
 	params := url.Values{}
 	params.Set("response_type", "code")
 	params.Set("client_id", "lobe-skill")
@@ -168,6 +233,64 @@ func TestSkillOAuthAuthorizeRedirectsAnonymousUserToLogin(t *testing.T) {
 	returnTo := location.Query().Get("return_to")
 	if !strings.HasPrefix(returnTo, "http://localhost:8080/api/v1/auth/skill/oauth/authorize?") {
 		t.Fatalf("unexpected return_to: %s", returnTo)
+	}
+}
+
+func TestSkillOAuthDenyReturnsAccessDeniedRedirect(t *testing.T) {
+	db := setupAuthTestDB(t)
+	t.Setenv("PUBLIC_BASE_URL", "https://cyime.example")
+	userID := uuid.New()
+	if err := db.Create(&models.User{ID: userID}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	seedSessionWithToken(t, db, userID, "Mozilla/5.0 Chrome", time.Now(), "refresh-token")
+
+	app := newSkillOAuthTestApp(userID)
+	redirectURI := "http://127.0.0.1:4173/oauth/callback"
+	params := url.Values{}
+	params.Set("response_type", "code")
+	params.Set("client_id", "deny-test")
+	params.Set("redirect_uri", redirectURI)
+	params.Set("state", "deny-state")
+
+	authorizeReq := httptest.NewRequest(http.MethodGet, "/api/v1/auth/skill/oauth/authorize?"+params.Encode(), nil)
+	authorizeReq.AddCookie(&http.Cookie{Name: "cyime_refresh_token", Value: "refresh-token"})
+	authorizeResp, err := app.Test(authorizeReq, -1)
+	if err != nil {
+		t.Fatalf("authorize request failed: %v", err)
+	}
+	location, err := url.Parse(authorizeResp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse consent location: %v", err)
+	}
+	requestID := location.Query().Get("request_id")
+	if requestID == "" {
+		t.Fatal("consent redirect did not include request_id")
+	}
+
+	denyReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/skill/oauth/requests/"+requestID+"/deny", nil)
+	denyResp, err := app.Test(denyReq, -1)
+	if err != nil {
+		t.Fatalf("deny request failed: %v", err)
+	}
+	if denyResp.StatusCode != http.StatusOK {
+		t.Fatalf("deny status = %d, want 200", denyResp.StatusCode)
+	}
+	var payload struct {
+		RedirectURL string `json:"redirectUrl"`
+	}
+	if err := json.NewDecoder(denyResp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode deny response: %v", err)
+	}
+	callbackURL, err := url.Parse(payload.RedirectURL)
+	if err != nil {
+		t.Fatalf("parse deny redirect URL: %v", err)
+	}
+	if callbackURL.Query().Get("error") != "access_denied" {
+		t.Fatalf("error = %q, want access_denied", callbackURL.Query().Get("error"))
+	}
+	if callbackURL.Query().Get("state") != "deny-state" {
+		t.Fatalf("state = %q, want deny-state", callbackURL.Query().Get("state"))
 	}
 }
 

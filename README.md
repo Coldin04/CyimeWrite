@@ -119,7 +119,7 @@ Cyime 提供面向 AI 客户端和外部工具的工作区集成能力：
 - Token：`https://你的后端域名/api/v1/auth/skill/oauth/token`
 - Flow：OAuth 2.0 authorization code with PKCE
 
-Token 响应中的 `access_token` 就是后续请求使用的 Cyime API Token，应只保存在客户端 secret store 中。
+用户登录后会先看到 Cyime 前端渲染的授权确认页，页面会列出请求客户端、回调地址、权限范围和 token 有效期。只有用户点击授权后，后端才会生成 authorization code。Token 响应中的 `access_token` 就是后续请求使用的 Cyime API Token，应只保存在客户端 secret store 中。
 
 启用 Skill OAuth 时请确认服务端配置：
 

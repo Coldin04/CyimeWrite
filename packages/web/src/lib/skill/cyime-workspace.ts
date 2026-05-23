@@ -1,6 +1,6 @@
 import { apiBaseUrl } from '$lib/config/api';
 
-export const skillSpecVersion = '2026-05-23.8';
+export const skillSpecVersion = '2026-05-23.9';
 
 export type SkillDocument = {
 	apiBaseUrl: string;
@@ -135,7 +135,7 @@ When the client supports browser OAuth, use the OAuth 2.0 authorization-code flo
 - Recommended scopes: \`workspace:read\`, \`workspace:write\`, \`document:read\`, \`document:write\`, \`file:move\`, \`file:copy\`
 - Optional destructive scope: \`file:delete\`. Request it only when the user wants AI clients to move files to trash.
 
-The user completes Cyime login in the browser. The token endpoint returns a Cyime API token as \`access_token\` with \`token_type: Bearer\`. Store it in the client's secret store and send it only as \`Authorization: Bearer <access_token>\`.
+The user completes Cyime login in the browser, then Cyime shows a frontend consent page with the requesting client, redirect URI, requested scopes, and token lifetime. An authorization code is created only after the user approves. The token endpoint returns a Cyime API token as \`access_token\` with \`token_type: Bearer\`. Store it in the client's secret store and send it only as \`Authorization: Bearer <access_token>\`.
 
 For deployed Cyime instances, server operators must configure:
 

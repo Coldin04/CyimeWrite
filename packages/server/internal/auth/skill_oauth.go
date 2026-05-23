@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	skillOAuthCodeLifetime  = 10 * time.Minute
-	skillOAuthTokenLifetime = 90 * 24 * time.Hour
+	skillOAuthRequestLifetime = 10 * time.Minute
+	skillOAuthCodeLifetime    = 10 * time.Minute
+	skillOAuthTokenLifetime   = 90 * 24 * time.Hour
 )
 
 var defaultSkillOAuthScopes = []string{
@@ -43,6 +44,15 @@ type skillOAuthTokenRequest struct {
 	RedirectURI  string `json:"redirect_uri" form:"redirect_uri"`
 	CodeVerifier string `json:"code_verifier" form:"code_verifier"`
 	ClientID     string `json:"client_id" form:"client_id"`
+}
+
+type skillOAuthRequestResponse struct {
+	ID                    string    `json:"id"`
+	ClientID              string    `json:"clientId"`
+	RedirectURI           string    `json:"redirectUri"`
+	Scopes                []string  `json:"scopes"`
+	ExpiresAt             time.Time `json:"expiresAt"`
+	TokenExpiresInSeconds int       `json:"tokenExpiresInSeconds"`
 }
 
 // SkillOAuthAuthorize starts the browser authorization-code flow used by skill
@@ -82,30 +92,26 @@ func SkillOAuthAuthorize(c *fiber.Ctx) error {
 		return redirectToSkillOAuthLogin(c)
 	}
 
-	code, err := generateSkillOAuthCode()
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate authorization code"})
-	}
 	scopesJSON, err := apitoken.EncodeScopes(scopes)
 	if err != nil {
 		return redirectOAuthError(c, redirectURI, c.Query("state"), "invalid_scope", err.Error())
 	}
 
-	row := models.SkillOAuthCode{
+	row := models.SkillOAuthRequest{
 		UserID:              userID,
 		ClientID:            strings.TrimSpace(c.Query("client_id")),
 		RedirectURI:         redirectURI,
-		CodeHash:            hashSkillOAuthCode(code),
+		State:               strings.TrimSpace(c.Query("state")),
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
 		Scopes:              scopesJSON,
-		ExpiresAt:           time.Now().Add(skillOAuthCodeLifetime),
+		ExpiresAt:           time.Now().Add(skillOAuthRequestLifetime),
 	}
 	if err := database.DB.Create(&row).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to persist authorization code"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to persist authorization request"})
 	}
 
-	return redirectOAuthCode(c, redirectURI, code, c.Query("state"), scopes)
+	return redirectToSkillOAuthConsent(c, row.ID)
 }
 
 // SkillOAuthToken exchanges a short-lived authorization code for a scoped Cyime
@@ -190,6 +196,155 @@ func SkillOAuthToken(c *fiber.Ctx) error {
 	})
 }
 
+// SkillOAuthGetRequest returns the pending browser authorization request for
+// frontend-rendered consent. The route must be protected by the normal browser
+// access token middleware.
+func SkillOAuthGetRequest(c *fiber.Ctx) error {
+	userID, err := protectedSkillOAuthUserID(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	}
+	requestID, err := skillOAuthRequestID(c)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var row models.SkillOAuthRequest
+	if err := database.DB.
+		Where("id = ? AND user_id = ? AND consumed_at IS NULL AND expires_at > ?", requestID, userID, time.Now()).
+		First(&row).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return skillOAuthRequestNotFound(c)
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	scopes, err := apitoken.DecodeScopes(row.Scopes)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(skillOAuthRequestResponse{
+		ID:                    row.ID.String(),
+		ClientID:              row.ClientID,
+		RedirectURI:           row.RedirectURI,
+		Scopes:                scopes,
+		ExpiresAt:             row.ExpiresAt,
+		TokenExpiresInSeconds: int(skillOAuthTokenLifetime.Seconds()),
+	})
+}
+
+// SkillOAuthApproveRequest consumes a pending authorization request and creates
+// the short-lived authorization code returned to the requesting OAuth client.
+func SkillOAuthApproveRequest(c *fiber.Ctx) error {
+	userID, err := protectedSkillOAuthUserID(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	}
+	requestID, err := skillOAuthRequestID(c)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var redirectURL string
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		row, scopes, err := loadPendingSkillOAuthRequest(tx, requestID, userID)
+		if err != nil {
+			return err
+		}
+
+		code, err := generateSkillOAuthCode()
+		if err != nil {
+			return err
+		}
+
+		now := time.Now()
+		result := tx.Model(&models.SkillOAuthRequest{}).
+			Where("id = ? AND consumed_at IS NULL AND expires_at > ?", row.ID, now).
+			Updates(map[string]any{
+				"consumed_at": now,
+				"approved_at": now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fiber.NewError(fiber.StatusNotFound, "authorization request is invalid, expired, or already handled")
+		}
+
+		codeRow := models.SkillOAuthCode{
+			UserID:              row.UserID,
+			ClientID:            row.ClientID,
+			RedirectURI:         row.RedirectURI,
+			CodeHash:            hashSkillOAuthCode(code),
+			CodeChallenge:       row.CodeChallenge,
+			CodeChallengeMethod: row.CodeChallengeMethod,
+			Scopes:              row.Scopes,
+			ExpiresAt:           time.Now().Add(skillOAuthCodeLifetime),
+		}
+		if err := tx.Create(&codeRow).Error; err != nil {
+			return err
+		}
+
+		redirectURL, err = buildOAuthCodeRedirectURL(row.RedirectURI, code, row.State, scopes)
+		return err
+	})
+	if err != nil {
+		if e, ok := err.(*fiber.Error); ok && e.Code == fiber.StatusNotFound {
+			return skillOAuthRequestNotFound(c)
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"redirectUrl": redirectURL})
+}
+
+// SkillOAuthDenyRequest consumes a pending authorization request and sends the
+// OAuth client back with access_denied.
+func SkillOAuthDenyRequest(c *fiber.Ctx) error {
+	userID, err := protectedSkillOAuthUserID(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	}
+	requestID, err := skillOAuthRequestID(c)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var redirectURL string
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		row, _, err := loadPendingSkillOAuthRequest(tx, requestID, userID)
+		if err != nil {
+			return err
+		}
+
+		now := time.Now()
+		result := tx.Model(&models.SkillOAuthRequest{}).
+			Where("id = ? AND consumed_at IS NULL AND expires_at > ?", row.ID, now).
+			Updates(map[string]any{
+				"consumed_at": now,
+				"denied_at":   now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fiber.NewError(fiber.StatusNotFound, "authorization request is invalid, expired, or already handled")
+		}
+
+		redirectURL, err = buildOAuthErrorRedirectURL(row.RedirectURI, row.State, "access_denied", "user denied authorization")
+		return err
+	})
+	if err != nil {
+		if e, ok := err.(*fiber.Error); ok && e.Code == fiber.StatusNotFound {
+			return skillOAuthRequestNotFound(c)
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"redirectUrl": redirectURL})
+}
+
 func currentBrowserUserID(c *fiber.Ctx) (uuid.UUID, bool, error) {
 	rawRefreshToken := c.Cookies("cyime_refresh_token")
 	if strings.TrimSpace(rawRefreshToken) == "" {
@@ -210,6 +365,57 @@ func currentBrowserUserID(c *fiber.Ctx) (uuid.UUID, bool, error) {
 	return row.UserID, true, nil
 }
 
+func protectedSkillOAuthUserID(c *fiber.Ctx) (uuid.UUID, error) {
+	raw, ok := c.Locals("userId").(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return uuid.Nil, fmt.Errorf("authenticated user is required")
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid authenticated user")
+	}
+	return id, nil
+}
+
+func skillOAuthRequestID(c *fiber.Ctx) (uuid.UUID, error) {
+	raw := strings.TrimSpace(c.Params("id"))
+	if raw == "" {
+		raw = strings.TrimSpace(c.Query("request_id"))
+	}
+	if raw == "" {
+		return uuid.Nil, fmt.Errorf("request id is required")
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("request id is invalid")
+	}
+	return id, nil
+}
+
+func loadPendingSkillOAuthRequest(tx *gorm.DB, requestID, userID uuid.UUID) (models.SkillOAuthRequest, []string, error) {
+	var row models.SkillOAuthRequest
+	if err := tx.
+		Where("id = ? AND user_id = ? AND consumed_at IS NULL AND expires_at > ?", requestID, userID, time.Now()).
+		First(&row).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return row, nil, fiber.NewError(fiber.StatusNotFound, "authorization request is invalid, expired, or already handled")
+		}
+		return row, nil, err
+	}
+
+	scopes, err := apitoken.DecodeScopes(row.Scopes)
+	if err != nil {
+		return row, nil, err
+	}
+	return row, scopes, nil
+}
+
+func skillOAuthRequestNotFound(c *fiber.Ctx) error {
+	return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+		"error": "authorization request is invalid, expired, or already handled",
+	})
+}
+
 func redirectToSkillOAuthLogin(c *fiber.Ctx) error {
 	returnTo := getAPIBaseURL() + c.OriginalURL()
 	loginURL, err := url.Parse(config.GetPublicBaseURL() + "/login")
@@ -220,6 +426,17 @@ func redirectToSkillOAuthLogin(c *fiber.Ctx) error {
 	query.Set("return_to", returnTo)
 	loginURL.RawQuery = query.Encode()
 	return c.Redirect(loginURL.String(), fiber.StatusTemporaryRedirect)
+}
+
+func redirectToSkillOAuthConsent(c *fiber.Ctx, requestID uuid.UUID) error {
+	consentURL, err := url.Parse(config.GetPublicBaseURL() + "/auth/skill/consent")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "invalid public base URL"})
+	}
+	query := consentURL.Query()
+	query.Set("request_id", requestID.String())
+	consentURL.RawQuery = query.Encode()
+	return c.Redirect(consentURL.String(), fiber.StatusTemporaryRedirect)
 }
 
 func parseSkillOAuthTokenRequest(c *fiber.Ctx) (skillOAuthTokenRequest, error) {
@@ -331,9 +548,17 @@ func isConfiguredSkillOAuthRedirectURI(value string) bool {
 }
 
 func redirectOAuthCode(c *fiber.Ctx, redirectURI, code, state string, scopes []string) error {
-	target, err := url.Parse(redirectURI)
+	redirectURL, err := buildOAuthCodeRedirectURL(redirectURI, code, state, scopes)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid redirect_uri"})
+	}
+	return c.Redirect(redirectURL, fiber.StatusTemporaryRedirect)
+}
+
+func buildOAuthCodeRedirectURL(redirectURI, code, state string, scopes []string) (string, error) {
+	target, err := url.Parse(redirectURI)
+	if err != nil {
+		return "", err
 	}
 	query := target.Query()
 	query.Set("code", code)
@@ -342,13 +567,21 @@ func redirectOAuthCode(c *fiber.Ctx, redirectURI, code, state string, scopes []s
 	}
 	query.Set("scope", strings.Join(scopes, " "))
 	target.RawQuery = query.Encode()
-	return c.Redirect(target.String(), fiber.StatusTemporaryRedirect)
+	return target.String(), nil
 }
 
 func redirectOAuthError(c *fiber.Ctx, redirectURI, state, code, description string) error {
-	target, err := url.Parse(redirectURI)
+	redirectURL, err := buildOAuthErrorRedirectURL(redirectURI, state, code, description)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": code, "error_description": description})
+	}
+	return c.Redirect(redirectURL, fiber.StatusTemporaryRedirect)
+}
+
+func buildOAuthErrorRedirectURL(redirectURI, state, code, description string) (string, error) {
+	target, err := url.Parse(redirectURI)
+	if err != nil {
+		return "", err
 	}
 	query := target.Query()
 	query.Set("error", code)
@@ -357,7 +590,7 @@ func redirectOAuthError(c *fiber.Ctx, redirectURI, state, code, description stri
 		query.Set("state", state)
 	}
 	target.RawQuery = query.Encode()
-	return c.Redirect(target.String(), fiber.StatusTemporaryRedirect)
+	return target.String(), nil
 }
 
 func oauthTokenError(c *fiber.Ctx, status int, code, description string) error {

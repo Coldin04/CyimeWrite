@@ -45,7 +45,7 @@ Clients that support browser OAuth should use the Cyime skill OAuth flow to obta
 - Response type: `code`
 - Grant type: `authorization_code`
 
-The user completes Cyime login in the browser. The token endpoint returns a Cyime API token as `access_token` with `token_type: Bearer`. The client stores that token in its secret store and sends it as:
+The user completes Cyime login in the browser. Cyime then shows a frontend-rendered consent page with the requesting client, redirect URI, requested scopes, and token lifetime. The server creates an authorization code only after the user approves. The token endpoint returns a Cyime API token as `access_token` with `token_type: Bearer`. The client stores that token in its secret store and sends it as:
 
 ```http
 Authorization: Bearer <access_token>

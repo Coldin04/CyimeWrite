@@ -39,7 +39,7 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.AuthProvider{}, &models.ApiToken{}, &models.SkillOAuthCode{}, &models.UserSession{}, &models.UserRefreshToken{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.AuthProvider{}, &models.ApiToken{}, &models.SkillOAuthCode{}, &models.SkillOAuthRequest{}, &models.UserSession{}, &models.UserRefreshToken{}); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
 	database.DB = db
