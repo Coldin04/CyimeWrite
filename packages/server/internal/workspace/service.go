@@ -36,6 +36,7 @@ var ReservedFolderNames = []string{
 }
 
 var ErrDocumentQuotaExceeded = errors.New("已达到文档数量上限")
+var ErrCopyTreeTooLarge = errors.New("复制的文件夹层级过大")
 
 var folderHierarchyMu sync.Mutex
 
@@ -45,6 +46,8 @@ const (
 	PublicAccessPrivate           = "private"
 	PublicAccessAuthenticated     = "authenticated"
 	PublicAccessGlobal            = "public"
+	maxFolderCopyNodeCount        = 1000
+	maxFolderCopyDepth            = 32
 )
 
 func normalizePreferredImageTargetID(value string) string {
@@ -2360,6 +2363,9 @@ func CopyFile(userID uuid.UUID, fileID uuid.UUID, fileType string, destinationFo
 					return err
 				}
 			}
+			if err := ensureFolderCopyTreeWithinLimit(tx, userID, sourceFolder.ID); err != nil {
+				return err
+			}
 			copiedFolder, err := copyFolderTreeInTx(tx, userID, sourceFolder, destinationFolderID, name)
 			if err != nil {
 				return err
@@ -2374,6 +2380,39 @@ func CopyFile(userID uuid.UUID, fileID uuid.UUID, fileType string, destinationFo
 		return nil, err
 	}
 	return &copiedItem, nil
+}
+
+func ensureFolderCopyTreeWithinLimit(tx *gorm.DB, userID, rootFolderID uuid.UUID) error {
+	type queueItem struct {
+		folderID uuid.UUID
+		depth    int
+	}
+
+	queue := []queueItem{{folderID: rootFolderID, depth: 1}}
+	totalNodes := 0
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		totalNodes++
+		if totalNodes > maxFolderCopyNodeCount || current.depth > maxFolderCopyDepth {
+			return ErrCopyTreeTooLarge
+		}
+
+		var children []uuid.UUID
+		if err := tx.Model(&models.Folder{}).
+			Where("parent_id = ? AND owner_user_id = ? AND deleted_at IS NULL", current.folderID, userID).
+			Pluck("id", &children).Error; err != nil {
+			return err
+		}
+
+		for _, childID := range children {
+			queue = append(queue, queueItem{folderID: childID, depth: current.depth + 1})
+		}
+	}
+
+	return nil
 }
 
 func validateCopyDestination(tx *gorm.DB, userID uuid.UUID, destinationFolderID *uuid.UUID) error {
