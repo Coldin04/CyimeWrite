@@ -1251,7 +1251,8 @@ func UpdateDocumentTitleHandler(c *fiber.Ctx) error {
 				Error:   "Not Found",
 				Message: err.Error(),
 			})
-		case errors.Is(err, ErrDocumentTitleRequired), errors.Is(err, ErrDocumentTitleTooLong), errors.Is(err, ErrDuplicateDocumentTitle):
+		case errors.Is(err, ErrDocumentTitleRequired), errors.Is(err, ErrDocumentTitleTooLong), errors.Is(err, ErrDuplicateDocumentTitle),
+			errors.Is(err, ErrCopyTreeTooLarge):
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 				Error:   "Bad Request",
 				Message: err.Error(),
@@ -1771,7 +1772,8 @@ func CopyFileHandler(c *fiber.Ctx) error {
 			errors.Is(err, ErrDuplicateFolderName),
 			errors.Is(err, ErrDocumentTitleRequired),
 			errors.Is(err, ErrDocumentTitleTooLong),
-			errors.Is(err, ErrDuplicateDocumentTitle):
+			errors.Is(err, ErrDuplicateDocumentTitle),
+			errors.Is(err, ErrCopyTreeTooLarge):
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 				Error:   "Validation Error",
 				Message: err.Error(),
