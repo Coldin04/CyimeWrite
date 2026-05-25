@@ -25,6 +25,7 @@ let accessToken: string | null = null;
 let refreshTimerId: NodeJS.Timeout | null = null;
 let refreshRetryTimerId: NodeJS.Timeout | null = null;
 let refreshPromise: Promise<string | null> | null = null;
+let authGeneration = 0;
 
 const REFRESH_RETRY_DELAY_MS = 30_000;
 const MIN_REFRESH_RETRY_DELAY_MS = 1_000;
@@ -144,6 +145,7 @@ function createAuthStore() {
 
 	async function performRefreshToken() {
 		console.log('Attempting to refresh token...');
+		const refreshGeneration = authGeneration;
 		try {
 			let newAccessToken: string;
 			try {
@@ -156,6 +158,9 @@ function createAuthStore() {
 				} else {
 					throw error;
 				}
+			}
+			if (refreshGeneration !== authGeneration) {
+				return null;
 			}
 
 			setAccessToken(newAccessToken);
@@ -277,6 +282,7 @@ function createAuthStore() {
 	}
 
 	async function logout() {
+		authGeneration += 1;
 		if (refreshTimerId) {
 			clearTimeout(refreshTimerId);
 			refreshTimerId = null;
