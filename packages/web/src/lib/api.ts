@@ -1,6 +1,5 @@
 import { auth } from '$lib/stores/auth';
 import { resolveApiUrl } from '$lib/config/api';
-import { get } from 'svelte/store';
 
 /**
  * A custom fetch wrapper that automatically adds the Authorization header
@@ -12,8 +11,8 @@ import { get } from 'svelte/store';
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
 	const resolvedUrl = resolveApiUrl(url);
 
-	// Get the current token from the store.
-	const token = get(auth).token;
+	// Get the current non-reactive access token.
+	const token = auth.getAccessToken();
 
 	// Set up the headers.
 	const headers = new Headers(options.headers);
@@ -32,7 +31,10 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
 	// across all concurrent callers and retry exactly once.
 	if (response.status === 401) {
 		try {
-			const newAccessToken = await auth.refreshToken();
+			const currentToken = auth.getAccessToken();
+			const newAccessToken = currentToken && currentToken !== token
+				? currentToken
+				: await auth.refreshToken();
 			if (newAccessToken) {
 				headers.set('Authorization', `Bearer ${newAccessToken}`);
 				options.headers = headers;

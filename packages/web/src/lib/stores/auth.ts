@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import { resolveApiUrl } from '$lib/config/api';
 
@@ -14,14 +14,18 @@ export type User = {
 };
 
 type AuthState = {
-	token: string | null;
+	authenticated: boolean;
 	user: User | null;
 	loading: boolean;
 };
 
-let refreshTimerId: NodeJS.Timeout | null = null;
-let refreshRetryTimerId: NodeJS.Timeout | null = null;
+// Keep the rotating access token outside the Svelte store. Token refresh should
+// not invalidate page effects; only real session/UI changes should notify subscribers.
+let accessToken: string | null = null;
+let refreshTimerId: ReturnType<typeof setTimeout> | null = null;
+let refreshRetryTimerId: ReturnType<typeof setTimeout> | null = null;
 let refreshPromise: Promise<string | null> | null = null;
+let authGeneration = 0;
 
 const REFRESH_RETRY_DELAY_MS = 30_000;
 const MIN_REFRESH_RETRY_DELAY_MS = 1_000;
@@ -54,6 +58,10 @@ function getTokenExpiresAt(token: string): number | null {
 	return exp ? exp * 1000 : null;
 }
 
+function setAccessToken(token: string | null) {
+	accessToken = token;
+}
+
 function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -73,7 +81,7 @@ async function withCrossTabRefreshLock<T>(callback: () => Promise<T>): Promise<T
 
 function createAuthStore() {
 	const { subscribe, set, update } = writable<AuthState>({
-		token: null,
+		authenticated: false,
 		user: null,
 		loading: true
 	});
@@ -137,6 +145,7 @@ function createAuthStore() {
 
 	async function performRefreshToken() {
 		console.log('Attempting to refresh token...');
+		const refreshGeneration = authGeneration;
 		try {
 			let newAccessToken: string;
 			try {
@@ -150,9 +159,22 @@ function createAuthStore() {
 					throw error;
 				}
 			}
+			if (refreshGeneration !== authGeneration) {
+				return null;
+			}
 
-			update((state) => ({ ...state, token: newAccessToken }));
+			setAccessToken(newAccessToken);
 			scheduleRefresh(newAccessToken);
+			const currentState = get({ subscribe });
+			if (currentState.loading || !currentState.authenticated || !currentState.user) {
+				try {
+					const user = await _fetchUser(newAccessToken);
+					set({ authenticated: true, user, loading: false });
+				} catch (profileError) {
+					console.error('Failed to refresh user profile after token refresh:', profileError);
+					update((state) => ({ ...state, authenticated: true, loading: false }));
+				}
+			}
 			console.log('Token refreshed successfully.');
 			return newAccessToken; // Return the new token on success
 		} catch (error) {
@@ -161,7 +183,7 @@ function createAuthStore() {
 			if (refreshError.status === 401 || refreshError.status === 403) {
 				await logout();
 			} else {
-				const currentToken = get(auth).token;
+				const currentToken = accessToken;
 				if (currentToken) {
 					scheduleRefreshRetry(currentToken);
 				}
@@ -206,10 +228,11 @@ function createAuthStore() {
 
 		// Try to restore session from the backend using the refresh token cookie.
 		try {
-			const accessToken = await requestNewAccessToken();
-			const user = await _fetchUser(accessToken);
-			set({ token: accessToken, user, loading: false });
-			scheduleRefresh(accessToken);
+			const newAccessToken = await requestNewAccessToken();
+			const user = await _fetchUser(newAccessToken);
+			setAccessToken(newAccessToken);
+			set({ authenticated: true, user, loading: false });
+			scheduleRefresh(newAccessToken);
 			console.log('Session restored successfully.');
 			return;
 		} catch (error) {
@@ -230,7 +253,8 @@ function createAuthStore() {
 
 		try {
 			const user = await _fetchUser(token);
-			set({ token, user, loading: false });
+			setAccessToken(token);
+			set({ authenticated: true, user, loading: false });
 			scheduleRefresh(token); // Schedule the first refresh on successful login.
 		} catch (error) {
 			console.error('Failed to log in:', error);
@@ -239,7 +263,7 @@ function createAuthStore() {
 	}
 
 	async function refreshUser() {
-		const token = get(auth).token;
+		const token = accessToken;
 		if (!token) {
 			return null;
 		}
@@ -253,7 +277,12 @@ function createAuthStore() {
 		update((state) => ({ ...state, user }));
 	}
 
+	function getAccessToken() {
+		return accessToken;
+	}
+
 	async function logout() {
+		authGeneration += 1;
 		if (refreshTimerId) {
 			clearTimeout(refreshTimerId);
 			refreshTimerId = null;
@@ -275,7 +304,8 @@ function createAuthStore() {
 			console.error('Error during logout API call:', error);
 		} finally {
 			// Always clear the local state to log the user out on the frontend.
-			set({ token: null, user: null, loading: false });
+			setAccessToken(null);
+			set({ authenticated: false, user: null, loading: false });
 		}
 	}
 
@@ -285,6 +315,7 @@ function createAuthStore() {
 		loginAndFetchUser,
 		refreshUser,
 		setUser,
+		getAccessToken,
 		logout,
 		refreshToken // Expose the refresh function
 	};

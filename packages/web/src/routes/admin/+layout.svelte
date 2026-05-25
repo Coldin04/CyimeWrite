@@ -18,7 +18,7 @@
 
 	$effect(() => {
 		if (!browser) return;
-		if (!$auth.loading && $auth.token && !hasAdminAccess) {
+		if (!$auth.loading && $auth.authenticated && !hasAdminAccess) {
 			void goto('/user', { replaceState: true });
 		}
 	});
@@ -35,4 +35,3 @@
 		</div>
 	{/if}
 </RouteAuthGuard>
-

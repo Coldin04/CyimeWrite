@@ -1,4 +1,5 @@
 import type { JSONContent } from '@tiptap/core';
+import { apiFetch } from '$lib/api';
 import {
 	copyToClipboard,
 	downloadTextFile,
@@ -79,9 +80,7 @@ export async function inlineManagedImagesAsDataURLs(
 
 	const dataURLByAssetID = new Map<string, string>();
 	for (const item of managedImages) {
-		const response = await fetch(resolveAssetContentURL(item.assetId), {
-			credentials: 'include'
-		});
+		const response = await apiFetch(resolveAssetContentURL(item.assetId));
 		if (!response.ok) {
 			throw new Error(`Failed to fetch private image ${item.assetId}`);
 		}
