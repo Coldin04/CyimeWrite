@@ -22,8 +22,8 @@ type AuthState = {
 // Keep the rotating access token outside the Svelte store. Token refresh should
 // not invalidate page effects; only real session/UI changes should notify subscribers.
 let accessToken: string | null = null;
-let refreshTimerId: NodeJS.Timeout | null = null;
-let refreshRetryTimerId: NodeJS.Timeout | null = null;
+let refreshTimerId: ReturnType<typeof setTimeout> | null = null;
+let refreshRetryTimerId: ReturnType<typeof setTimeout> | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 let authGeneration = 0;
 
