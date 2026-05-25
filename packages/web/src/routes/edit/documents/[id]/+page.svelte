@@ -84,8 +84,6 @@
 	let collaboration = $state<ProviderInstance | null>(null);
 	let collaborationDocumentId = $state<string | null>(null);
 	let documentLoadSequence = 0;
-	let loadingDocumentId: string | null = null;
-	let loadedDocumentId: string | null = null;
 	let collaborationError = $state<string | null>(null);
 	let collaborationIndicator = $state<
 		{ kind: 'single' | 'single-offline' | 'multi-pending' | 'multi'; label: string } | null
@@ -859,19 +857,16 @@
 		nextDocumentId: string,
 		options: { keepalive?: boolean } = {}
 	): Promise<void> {
-		const token = auth.getAccessToken();
-		if (!collaborationEnabled || !browser || !nextDocumentId || !presenceSessionId || !token) {
+		if (!collaborationEnabled || !browser || !nextDocumentId || !presenceSessionId) {
 			return;
 		}
 
 		try {
-			await fetch(buildRealtimePresenceURL(nextDocumentId), {
+			await apiFetch(buildRealtimePresenceURL(nextDocumentId), {
 				method: 'DELETE',
 				headers: {
-					Authorization: `Bearer ${token}`,
 					'X-Presence-Session-Id': presenceSessionId
 				},
-				credentials: 'include',
 				keepalive: options.keepalive ?? false
 			});
 		} catch (error) {
@@ -1410,13 +1405,8 @@
 	// Load document content when ID becomes available
 	$effect(() => {
 		if (documentId && !authSignal.loading && !realtimeConfigSignal.loading) {
-			if (loadingDocumentId === documentId || loadedDocumentId === documentId) {
-				return;
-			}
 			const targetDocumentId = documentId;
 			const loadSequence = ++documentLoadSequence;
-			loadingDocumentId = targetDocumentId;
-			loadedDocumentId = null;
 			isLoading = true;
 			settleCollaborationSaveWaiters(false);
 			resetOnlineMembers();
@@ -1489,7 +1479,6 @@
 					isSaving = false;
 					updateCollaborationIndicator();
 					console.log('[Load] Title loaded:', title);
-					loadedDocumentId = targetDocumentId;
 					isLoading = false;
 
 					if (collaborationEnabled) {
@@ -1540,9 +1529,6 @@
 					);
 					goto('/workspace');
 				} finally {
-					if (loadSequence === documentLoadSequence && loadingDocumentId === targetDocumentId) {
-						loadingDocumentId = null;
-					}
 					if (isCurrentLoad() && isLoading) {
 						isLoading = false;
 					}
