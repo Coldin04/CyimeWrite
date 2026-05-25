@@ -14,16 +14,16 @@
 	// Show loading/placeholder when: required auth is loading or pending redirect to login,
 	// or guest mode has an authenticated user being redirected to workspace.
 	const showLoadingScreen = $derived(
-		(requiresAuth && ($auth.loading || !$auth.token)) ||
-			(requiresGuest && !$auth.loading && !!$auth.token)
+		(requiresAuth && ($auth.loading || !$auth.authenticated)) ||
+			(requiresGuest && !$auth.loading && $auth.authenticated)
 	);
 
 	$effect(() => {
 		if (!browser) return;
-		if (requiresAuth && !$auth.loading && !$auth.token) {
+		if (requiresAuth && !$auth.loading && !$auth.authenticated) {
 			goto('/login', { replaceState: true });
 		}
-		if (requiresGuest && !$auth.loading && $auth.token) {
+		if (requiresGuest && !$auth.loading && $auth.authenticated) {
 			goto('/workspace', { replaceState: true });
 		}
 	});

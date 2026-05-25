@@ -1,4 +1,5 @@
 import type { JSONContent } from '@tiptap/core';
+import { apiFetch } from '$lib/api';
 import { pasteDocumentImage } from '$lib/api/editor';
 import { resolveApiUrl } from '$lib/config/api';
 import type { ExportAction } from '$lib/export/exportActions';
@@ -115,9 +116,7 @@ export async function prepareExportContentWithPublicImages(options: {
 				duration: Infinity
 			});
 
-			const response = await fetch(resolveApiUrl(`/api/v1/media/assets/${image.assetId}/content`), {
-				credentials: 'include'
-			});
+			const response = await apiFetch(`/api/v1/media/assets/${image.assetId}/content`);
 			if (!response.ok) {
 				throw new Error(`Failed to fetch private image ${image.assetId}`);
 			}
