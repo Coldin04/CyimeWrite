@@ -84,6 +84,8 @@
 	let collaboration = $state<ProviderInstance | null>(null);
 	let collaborationDocumentId = $state<string | null>(null);
 	let documentLoadSequence = 0;
+	let loadingDocumentId: string | null = null;
+	let loadedDocumentId: string | null = null;
 	let collaborationError = $state<string | null>(null);
 	let collaborationIndicator = $state<
 		{ kind: 'single' | 'single-offline' | 'multi-pending' | 'multi'; label: string } | null
@@ -1408,8 +1410,13 @@
 	// Load document content when ID becomes available
 	$effect(() => {
 		if (documentId && !authSignal.loading && !realtimeConfigSignal.loading) {
+			if (loadingDocumentId === documentId || loadedDocumentId === documentId) {
+				return;
+			}
 			const targetDocumentId = documentId;
 			const loadSequence = ++documentLoadSequence;
+			loadingDocumentId = targetDocumentId;
+			loadedDocumentId = null;
 			isLoading = true;
 			settleCollaborationSaveWaiters(false);
 			resetOnlineMembers();
@@ -1482,6 +1489,7 @@
 					isSaving = false;
 					updateCollaborationIndicator();
 					console.log('[Load] Title loaded:', title);
+					loadedDocumentId = targetDocumentId;
 					isLoading = false;
 
 					if (collaborationEnabled) {
@@ -1532,6 +1540,9 @@
 					);
 					goto('/workspace');
 				} finally {
+					if (loadSequence === documentLoadSequence && loadingDocumentId === targetDocumentId) {
+						loadingDocumentId = null;
+					}
 					if (isCurrentLoad() && isLoading) {
 						isLoading = false;
 					}

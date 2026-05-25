@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import { resolveApiUrl } from '$lib/config/api';
 
@@ -160,6 +160,16 @@ function createAuthStore() {
 
 			setAccessToken(newAccessToken);
 			scheduleRefresh(newAccessToken);
+			const currentState = get({ subscribe });
+			if (currentState.loading || !currentState.authenticated || !currentState.user) {
+				try {
+					const user = await _fetchUser(newAccessToken);
+					set({ authenticated: true, user, loading: false });
+				} catch (profileError) {
+					console.error('Failed to refresh user profile after token refresh:', profileError);
+					update((state) => ({ ...state, authenticated: true, loading: false }));
+				}
+			}
 			console.log('Token refreshed successfully.');
 			return newAccessToken; // Return the new token on success
 		} catch (error) {
